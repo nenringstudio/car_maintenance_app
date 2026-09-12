@@ -1,0 +1,10 @@
+# このアプリで使うライブラリ一覧
+# インストール: pip install -r requirements.txt
+
+streamlit>=1.32              # 画面（Web UI）を作るためのライブラリ
+
+# --- ステップ3: Googleスプレッドシート連携 ---
+gspread>=6.1.2               # スプレッドシートを Python から読み書きする
+google-auth-oauthlib>=1.2.0 # Googleアカウントでのログイン（OAuth）処理
+
+# pandas / pyarrow は streamlit が自動で一緒に入れてくれるので、ここには書きません

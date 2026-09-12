@@ -1,0 +1,161 @@
+# 🚗 車の情報管理アプリ（家族用）
+
+複数台の車の「車検・オイル交換・タイヤ交換」の期限をまとめて管理するための、家族向けWebアプリです。
+
+## 今できること（ステップ1〜3）
+
+- 車の情報（名前 / ナンバー / 車検期限 / 直近のオイル交換日 / 直近のタイヤ交換日）を **登録** できる
+- 登録した車を **一覧表示** できる（スマホ向けに1台ずつのカード表示つき）
+- 車を **削除** できる
+- 車検 / オイル交換 / タイヤ交換の期限を **色分け表示**（🔴期限切れ / 🟡期限が近い / 🟢まだ余裕 / ⚪未設定）
+  - 期限が近い車ほど上に並び、危ない車のカードは最初から開いた状態
+  - オイル/タイヤは「前回の交換日 ＋ 推奨間隔」で次回の目安日を計算（間隔は [`src/config.py`](src/config.py) で変更可）
+- 保存先を **CSV ↔ Google スプレッドシート** で切り替えられる（設定を1つ変えるだけ。手順は下記）
+
+> 期限が近づいたらメールで知らせる機能は、次のステップで追加予定です。
+
+## これから作る予定
+
+| ステップ | 内容 |
+| --- | --- |
+| 1（完了） | 車の情報を登録・一覧表示する画面 |
+| 2（完了） | 期限が近い車を色分けで目立たせる |
+| 3（完了） | 保存先を Google スプレッドシートに切り替え |
+| 4 | GitHub Actions + Gmail で定期チェック・メール通知 |
+
+---
+
+## 使い方（はじめての人向け）
+
+### 1. 必要なもの
+
+- パソコンに **Python 3.10 以上** が入っていること
+  （確認: ターミナルで `python --version`）
+
+### 2. 準備（最初の1回だけ）
+
+プロジェクトのフォルダを開いて、ターミナルで次を実行します。
+
+```bash
+# 仮想環境（このアプリ専用の隔離された場所）を作る
+python -m venv .venv
+
+# 仮想環境を有効にする
+#   Windows (PowerShell):
+.venv\Scripts\Activate.ps1
+#   Mac / Linux:
+source .venv/bin/activate
+
+# 必要なライブラリをインストール
+pip install -r requirements.txt
+```
+
+### 3. アプリを起動する
+
+```bash
+streamlit run app.py
+```
+
+ブラウザが自動で開きます（開かなければ表示された `http://localhost:8501` を開いてください）。
+止めるときはターミナルで `Ctrl + C`。
+
+---
+
+## データはどこに保存される？
+
+保存先は2種類あり、設定1つで切り替えられます（`app.py` 側は変更不要）。
+
+| 保存先 | 設定値 | 保存場所 |
+| --- | --- | --- |
+| ローカルCSV（初期状態） | `backend = "csv"` | `data/cars.csv`（PC内だけ） |
+| Googleスプレッドシート | `backend = "gsheets"` | あなたの Google アカウントのシート |
+
+切り替え方法や、スプレッドシート連携のセットアップ手順は次の章のとおりです。
+保存処理は [`src/storage/`](src/storage/) にまとめてあるので、切り替えても他の画面コードは変わりません。
+
+---
+
+## Google スプレッドシート連携のセットアップ（ステップ3）
+
+**前提**: Google Cloud で OAuth クライアント（種類: デスクトップアプリ）を作成済みで、
+ダウンロードした `client_secret_....json` を `car_maintenance_app/` 直下に置いていること。
+スプレッドシートは自分の Google アカウントで作成済み（共有設定は不要）。
+
+> ⚠️ `client_secret_*.json` は「あなたの代わりにログインするためのカギ」です。
+> `.gitignore` で除外済みですが、**絶対に他人に渡したり GitHub に上げたりしないでください。**
+
+### 1. Google Cloud 側の確認
+
+1. 対象のプロジェクトで **Google Sheets API** を有効化する
+   （Google Cloud Console →「APIとサービス」→「ライブラリ」→ "Google Sheets API" を検索して有効化）
+2. 「OAuth 同意画面」で、自分の Google アカウントを **テストユーザー** に追加しておく
+   （個人利用の範囲なら「公開」にする必要はありません）
+
+### 2. 接続先スプレッドシートを設定する
+
+見本ファイルをコピーして、自分用の設定ファイルを作ります。
+
+```bash
+# car_maintenance_app フォルダの中で実行
+copy .streamlit\secrets.toml.example .streamlit\secrets.toml   # Windows
+# cp .streamlit/secrets.toml.example .streamlit/secrets.toml   # Mac/Linux
+```
+
+`.streamlit/secrets.toml` を開いて、次の2行を自分用に書き換えます。
+
+```toml
+backend = "gsheets"
+spreadsheet_url = "https://docs.google.com/spreadsheets/d/xxxxx.../edit"
+```
+
+（`spreadsheet_url` は使いたいスプレッドシートをブラウザで開いたときの URL をそのまま貼るだけでOKです）
+
+### 3. 初回ログイン（最初の1回だけ）
+
+```bash
+python scripts/authorize_google.py
+```
+
+ブラウザが開くので、スプレッドシートを持っている Google アカウントで許可してください。
+成功すると `.streamlit/token.json` にログイン結果が保存され、以降は自動的に使われます
+（期限が切れても自動更新されるので、基本これ以降は実行不要です）。
+
+### 4. アプリを起動
+
+```bash
+streamlit run app.py
+```
+
+初回アクセス時、指定したスプレッドシートに `cars` という名前のシート（タブ）と見出し行が
+自動で作られます。あとは画面から登録すれば、そのままスプレッドシートに反映されます。
+
+### 元のCSV保存に戻したいとき
+
+`.streamlit/secrets.toml` の `backend` を `"csv"` に変えるだけです。
+
+---
+
+## フォルダ構成
+
+```
+car_maintenance_app/
+├── app.py                    … 画面本体（これを streamlit run で起動）
+├── requirements.txt          … 使うライブラリ一覧
+├── client_secret_....json    … Google OAuth のカギ（Git対象外・要手動配置）
+├── scripts/
+│   └── authorize_google.py   … 【初回だけ】Googleにログインしてトークンを作る
+├── .streamlit/
+│   ├── secrets.toml.example  … 設定の見本（コピーして使う）
+│   └── secrets.toml          … 実際の設定・トークン（Git対象外）
+├── data/
+│   └── cars.csv              … 車データ（CSV運用時のみ・起動時に自動作成 / Git対象外）
+└── src/
+    ├── config.py             … 設定（保存先の種類、ファイルの場所、警告する日数）
+    ├── models.py             … 「車1台分の情報」の形（Car）
+    ├── maintenance.py        … 期限が近いかを判定する計算（色分けの元）
+    └── storage/
+        ├── base.py           … 保存先の共通ルール（インターフェース）
+        ├── csv_storage.py    … CSVファイルに読み書きする実装
+        ├── gsheets_storage.py … Googleスプレッドシートに読み書きする実装
+        └── __init__.py       … get_storage() で保存先を選ぶ入り口
+```
