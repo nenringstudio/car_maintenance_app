@@ -13,7 +13,7 @@ from datetime import date
 from enum import Enum
 
 from src import config
-from src.models import Car
+from src.models import Car, MaintenanceRecord, RecordType
 
 
 class Status(str, Enum):
@@ -112,30 +112,40 @@ def _judge(name, due_date, warn_days, today, *, is_estimate=False) -> ItemCheck:
     return ItemCheck(name, due_date, days_left, status, is_estimate)
 
 
-def check_car(car: Car, today: date | None = None) -> CarCheck:
-    """車1台をチェックして CarCheck を返す。"""
-    today = today or date.today()
+def _latest_date(records: list[MaintenanceRecord], record_type: RecordType) -> date | None:
+    """指定した作業内容の記録の中で、一番新しい日付を返す（無ければ None）。"""
+    dates = [r.date for r in records if r.record_type == record_type]
+    return max(dates) if dates else None
 
-    # 車検: 記録された期限日をそのまま使う
+
+def check_car(
+    car: Car, records: list[MaintenanceRecord], today: date | None = None
+) -> CarCheck:
+    """車1台をチェックして CarCheck を返す。
+
+    records には全車ぶんの整備記録を渡してよい（内部で car.id の分だけ絞り込む）。
+    """
+    today = today or date.today()
+    car_records = [r for r in records if r.car_id == car.id]
+
+    # 車検: 記録された期限日をそのまま使う（履歴とは別に、車ごとに直接持つ値）
     inspection = _judge(
         "車検", car.inspection_due_date, config.INSPECTION_WARN_DAYS, today
     )
 
-    # オイル交換: 前回 ＋ 推奨間隔 を次回の目安日にする
+    # オイル交換: 整備記録の中で一番新しい日付 ＋ 推奨間隔 を次回の目安日にする
+    last_oil = _latest_date(car_records, RecordType.OIL)
     oil_due = (
-        add_months(car.last_oil_change_date, config.OIL_CHANGE_INTERVAL_MONTHS)
-        if car.last_oil_change_date
-        else None
+        add_months(last_oil, config.OIL_CHANGE_INTERVAL_MONTHS) if last_oil else None
     )
     oil = _judge(
         "オイル交換", oil_due, config.OIL_CHANGE_WARN_DAYS, today, is_estimate=True
     )
 
     # タイヤ交換: 同上
+    last_tire = _latest_date(car_records, RecordType.TIRE)
     tire_due = (
-        add_months(car.last_tire_change_date, config.TIRE_CHANGE_INTERVAL_MONTHS)
-        if car.last_tire_change_date
-        else None
+        add_months(last_tire, config.TIRE_CHANGE_INTERVAL_MONTHS) if last_tire else None
     )
     tire = _judge(
         "タイヤ交換", tire_due, config.TIRE_CHANGE_WARN_DAYS, today, is_estimate=True
@@ -144,9 +154,11 @@ def check_car(car: Car, today: date | None = None) -> CarCheck:
     return CarCheck(car=car, items=[inspection, oil, tire])
 
 
-def check_all(cars: list[Car], today: date | None = None) -> list[CarCheck]:
+def check_all(
+    cars: list[Car], records: list[MaintenanceRecord], today: date | None = None
+) -> list[CarCheck]:
     """複数台をまとめてチェックし、緊急な順に並べて返す。"""
     today = today or date.today()
-    checks = [check_car(c, today) for c in cars]
+    checks = [check_car(c, records, today) for c in cars]
     checks.sort(key=lambda cc: cc.sort_key)
     return checks

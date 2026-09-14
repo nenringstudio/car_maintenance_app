@@ -54,6 +54,11 @@ DATA_BACKEND = _setting("backend", "csv")
 # CSV で保存するときのファイルの場所（car_maintenance_app/data/cars.csv）
 CSV_PATH = Path(_setting("csv_path", str(BASE_DIR / "data" / "cars.csv")))
 
+# 整備記録（履歴）を CSV で保存するときのファイルの場所
+RECORDS_CSV_PATH = Path(
+    _setting("records_csv_path", str(BASE_DIR / "data" / "maintenance_records.csv"))
+)
+
 
 # =====================================================================
 # Google スプレッドシート連携の設定（DATA_BACKEND = "gsheets" のとき使用）
@@ -72,6 +77,9 @@ SPREADSHEET_ID = _spreadsheet_id()
 
 # シート（タブ）の名前。無ければアプリが自動で作ります。
 WORKSHEET_NAME = _setting("worksheet_name", "cars")
+
+# 整備記録（履歴）用のシート（タブ）の名前。無ければアプリが自動で作ります。
+RECORDS_WORKSHEET_NAME = _setting("records_worksheet_name", "maintenance_records")
 
 
 def _client_secret_path() -> Path:
@@ -98,6 +106,17 @@ GOOGLE_TOKEN_JSON = _setting("token_json")
 
 # Google に許可をもらう範囲：スプレッドシートの読み書きのみ
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+
+
+# =====================================================================
+# 担当者タグの設定
+#
+# 車を登録するときに選べる「担当者」の選択肢です。
+# 増やしたり減らしたり、名前を変えたりしたいときは、このリストを直接編集してください。
+# （例: "父" を "パパ" に変える、"次男" を増やす、など）
+# =====================================================================
+
+OWNER_OPTIONS = ["父", "母", "長男", "長女"]
 
 
 # =====================================================================

@@ -1,8 +1,8 @@
 """家族用 車の情報管理アプリ
 
-ステップ2まで:
   ・車の情報を「登録」して「一覧表示」する
   ・車検 / オイル交換 / タイヤ交換 の期限が近い車を色分けで表示する
+  ・オイル交換 / タイヤ交換 / 車検 / その他の整備記録を、車ごとに履歴として残す
 （メール送信は次のステップで追加します）
 
 起動方法（ターミナルで）:
@@ -14,10 +14,10 @@ from datetime import date
 
 import streamlit as st
 
-from src import maintenance
+from src import config, maintenance
 from src.maintenance import Status
-from src.models import Car
-from src.storage import get_storage
+from src.models import RECORD_TYPE_LABELS, Car, MaintenanceRecord, RecordType
+from src.storage import get_storages
 
 
 def _show(value: date | None) -> str:
@@ -42,11 +42,24 @@ def _item_line(item: maintenance.ItemCheck) -> str:
     return f"{emoji} **{item.name}**：:{color}[{detail}]"
 
 
+def _record_line(record: MaintenanceRecord) -> str:
+    """整備記録1件を、1行のテキストにする。"""
+    label = RECORD_TYPE_LABELS[record.record_type]
+    when = record.date.strftime("%Y/%m/%d")
+    text = f"{when}　**{label}**"
+    if record.cost is not None:
+        text += f"　￥{record.cost:,}"
+    if record.memo:
+        text += f"　{record.memo}"
+    return text
+
+
 # ---- 画面全体の設定（スマホ向けに centered = 中央寄せの1カラム）----
 st.set_page_config(page_title="車の情報管理", page_icon="🚗", layout="centered")
 
 # 保存先（今は CSV。将来スプレッドシートに差し替え予定）
-storage = get_storage()
+# storage ……… 車の基本情報　/　record_storage ……… 整備記録（履歴）
+storage, record_storage = get_storages()
 
 st.title("🚗 車の情報管理")
 st.caption("家族で使う、車検・オイル交換・タイヤ交換の記録アプリ")
@@ -59,6 +72,7 @@ st.header("登録されている車")
 
 try:
     cars = storage.list_cars()
+    records = record_storage.list_records()
 except Exception as e:
     st.error(f"車のデータを読み込めませんでした。\n\n{e}")
     st.stop()
@@ -67,11 +81,38 @@ if not cars:
     st.info("まだ車が登録されていません。下の「車を追加する」から登録してください。")
 else:
     # 期限チェック（緊急な車が先頭にくるよう並べ替え済み）
-    checks = maintenance.check_all(cars)
+    # ※ オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付から自動計算しています。
+    checks = maintenance.check_all(cars, records)
 
-    # (a) 全体のお知らせ
-    overdue = [cc for cc in checks if cc.status == Status.OVERDUE]
-    soon = [cc for cc in checks if cc.status == Status.SOON]
+    # (a) 絞り込み（担当者 / 状態）
+    #     ※ ここで絞り込んでも、並び順は checks の順番（緊急な車が先頭）のまま変わりません。
+    owner_options = sorted(
+        {c.owner for c in cars if c.owner} | set(config.OWNER_OPTIONS)
+    )
+    status_options = [Status.OVERDUE, Status.SOON, Status.OK, Status.UNKNOWN]
+
+    filter_col1, filter_col2 = st.columns(2)
+    with filter_col1:
+        selected_owners = st.multiselect(
+            "担当者で絞り込み", options=owner_options, placeholder="すべて"
+        )
+    with filter_col2:
+        selected_statuses = st.multiselect(
+            "状態で絞り込み",
+            options=status_options,
+            format_func=lambda s: f"{maintenance.STATUS_EMOJI[s]} {maintenance.STATUS_LABEL[s]}",
+            placeholder="すべて",
+        )
+
+    filtered = checks
+    if selected_owners:
+        filtered = [cc for cc in filtered if cc.car.owner in selected_owners]
+    if selected_statuses:
+        filtered = [cc for cc in filtered if cc.status in selected_statuses]
+
+    # (b) 全体のお知らせ（絞り込み後の件数）
+    overdue = [cc for cc in filtered if cc.status == Status.OVERDUE]
+    soon = [cc for cc in filtered if cc.status == Status.SOON]
     if overdue:
         st.error(f"🔴 期限切れの項目がある車が {len(overdue)}台 あります")
     if soon:
@@ -81,45 +122,121 @@ else:
 
     st.caption("🔴 期限切れ　🟡 期限が近い　🟢 まだ余裕　⚪ 未設定")
 
-    # (b) 表でざっと確認（横スクロールできます）
-    st.dataframe(
-        [
-            {
-                "状態": f"{maintenance.STATUS_EMOJI[cc.status]} "
-                f"{maintenance.STATUS_LABEL[cc.status]}",
-                "名前": cc.car.name,
-                "ナンバー": cc.car.plate_number or "-",
-                "車検期限": _show(cc.car.inspection_due_date),
-                "前回オイル交換": _show(cc.car.last_oil_change_date),
-                "前回タイヤ交換": _show(cc.car.last_tire_change_date),
-            }
-            for cc in checks
-        ],
-        width="stretch",
-        hide_index=True,
-    )
+    if not filtered:
+        st.info("絞り込み条件に一致する車がありません。")
+    else:
+        # (c) 表でざっと確認（横スクロールできます）
+        st.dataframe(
+            [
+                {
+                    "状態": f"{maintenance.STATUS_EMOJI[cc.status]} "
+                    f"{maintenance.STATUS_LABEL[cc.status]}",
+                    "名前": cc.car.name,
+                    "担当者": cc.car.owner or "-",
+                    "ナンバー": cc.car.plate_number or "-",
+                    "車検期限": _show(cc.car.inspection_due_date),
+                    "次回オイル目安": _show(cc.items[1].due_date),
+                    "次回タイヤ目安": _show(cc.items[2].due_date),
+                }
+                for cc in filtered
+            ],
+            width="stretch",
+            hide_index=True,
+        )
 
-    # (c) スマホ向け: 1台ずつカードで表示（危ない車は開いた状態）
-    st.subheader("車ごとの詳細")
-    for cc in checks:
-        c = cc.car
-        title = f"{maintenance.STATUS_EMOJI[cc.status]} {c.name}"
-        if c.plate_number:
-            title += f"（{c.plate_number}）"
-        with st.expander(title, expanded=cc.status in (Status.OVERDUE, Status.SOON)):
-            for item in cc.items:
-                st.markdown(_item_line(item))
-            st.caption(
-                "オイル/タイヤの日付は「前回＋推奨間隔」で計算した目安です"
-                "（間隔は src/config.py で変更できます）。"
-            )
-            if st.button("この車を削除する", key=f"delete-{c.id}"):
-                try:
-                    storage.delete_car(c.id)
-                except Exception as e:
-                    st.error(f"削除に失敗しました。\n\n{e}")
-                    st.stop()
-                st.rerun()
+        # (d) スマホ向け: 1台ずつカードで表示（危ない車は開いた状態）
+        st.subheader("車ごとの詳細")
+        for cc in filtered:
+            c = cc.car
+            title = f"{maintenance.STATUS_EMOJI[cc.status]} {c.name}"
+            if c.owner:
+                title += f"（担当: {c.owner}）"
+            with st.expander(
+                title, expanded=cc.status in (Status.OVERDUE, Status.SOON)
+            ):
+                if c.plate_number:
+                    st.caption(f"ナンバー: {c.plate_number}")
+                for item in cc.items:
+                    st.markdown(_item_line(item))
+                st.caption(
+                    "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
+                    "＋推奨間隔で計算しています（間隔は src/config.py で変更できます）。"
+                )
+
+                # ---- 整備履歴（新しい順） ----
+                st.markdown("**整備履歴**")
+                car_records = sorted(
+                    (r for r in records if r.car_id == c.id),
+                    key=lambda r: r.date,
+                    reverse=True,
+                )
+                if not car_records:
+                    st.caption("まだ記録がありません。")
+                else:
+                    for r in car_records:
+                        line_col, delete_col = st.columns([5, 1])
+                        with line_col:
+                            st.markdown(_record_line(r))
+                        with delete_col:
+                            if st.button("削除", key=f"delete-record-{r.id}"):
+                                try:
+                                    record_storage.delete_record(r.id)
+                                except Exception as e:
+                                    st.error(f"削除に失敗しました。\n\n{e}")
+                                    st.stop()
+                                st.rerun()
+
+                # ---- 整備記録を追加するフォーム ----
+                with st.form(f"add-record-{c.id}", clear_on_submit=True):
+                    st.caption("整備記録を追加する")
+                    rec_col1, rec_col2 = st.columns(2)
+                    with rec_col1:
+                        record_date = st.date_input(
+                            "作業日", value=date.today(), format="YYYY/MM/DD"
+                        )
+                    with rec_col2:
+                        record_type = st.selectbox(
+                            "作業内容",
+                            options=list(RecordType),
+                            format_func=lambda t: RECORD_TYPE_LABELS[t],
+                        )
+                    rec_col3, rec_col4 = st.columns(2)
+                    with rec_col3:
+                        cost = st.number_input(
+                            "費用（円・任意）", min_value=0, step=100, value=None
+                        )
+                    with rec_col4:
+                        memo = st.text_input(
+                            "メモ（任意）", placeholder="例: 4本とも交換"
+                        )
+                    record_submitted = st.form_submit_button(
+                        "記録を追加する", width="stretch"
+                    )
+                    if record_submitted:
+                        try:
+                            record_storage.add_record(
+                                MaintenanceRecord(
+                                    car_id=c.id,
+                                    date=record_date,
+                                    record_type=record_type,
+                                    cost=int(cost) if cost is not None else None,
+                                    memo=memo.strip(),
+                                )
+                            )
+                        except Exception as e:
+                            st.error(f"記録の追加に失敗しました。\n\n{e}")
+                            st.stop()
+                        st.success("整備記録を追加しました。")
+                        st.rerun()
+
+                if st.button("この車を削除する", key=f"delete-{c.id}"):
+                    try:
+                        storage.delete_car(c.id)
+                        record_storage.delete_records_for_car(c.id)
+                    except Exception as e:
+                        st.error(f"削除に失敗しました。\n\n{e}")
+                        st.stop()
+                    st.rerun()
 
 
 # =====================================================================
@@ -129,11 +246,17 @@ st.header("車を追加する")
 
 with st.form("add-car-form", clear_on_submit=True):
     name = st.text_input("車の名前 *", placeholder="例: パパの車")
+    owner = st.selectbox(
+        "担当者",
+        options=["（未設定）"] + config.OWNER_OPTIONS,
+        help="選択肢を増やしたり変えたりしたいときは src/config.py の OWNER_OPTIONS を編集してください。",
+    )
     plate_number = st.text_input("ナンバー", placeholder="例: 品川 300 あ 12-34")
     inspection_due_date = st.date_input(
         "車検の期限日", value=None, format="YYYY/MM/DD"
     )
 
+    st.caption("直近の交換日が分かれば、整備履歴の1件目として登録されます（任意）。")
     col1, col2 = st.columns(2)
     with col1:
         last_oil_change_date = st.date_input(
@@ -150,16 +273,30 @@ with st.form("add-car-form", clear_on_submit=True):
         if not name.strip():
             st.error("「車の名前」は必須です。")
         else:
+            new_car = Car(
+                name=name.strip(),
+                owner="" if owner == "（未設定）" else owner,
+                plate_number=plate_number.strip(),
+                inspection_due_date=inspection_due_date,
+            )
             try:
-                storage.add_car(
-                    Car(
-                        name=name.strip(),
-                        plate_number=plate_number.strip(),
-                        inspection_due_date=inspection_due_date,
-                        last_oil_change_date=last_oil_change_date,
-                        last_tire_change_date=last_tire_change_date,
+                storage.add_car(new_car)
+                if last_oil_change_date:
+                    record_storage.add_record(
+                        MaintenanceRecord(
+                            car_id=new_car.id,
+                            date=last_oil_change_date,
+                            record_type=RecordType.OIL,
+                        )
                     )
-                )
+                if last_tire_change_date:
+                    record_storage.add_record(
+                        MaintenanceRecord(
+                            car_id=new_car.id,
+                            date=last_tire_change_date,
+                            record_type=RecordType.TIRE,
+                        )
+                    )
             except Exception as e:
                 st.error(f"追加に失敗しました。\n\n{e}")
                 st.stop()
