@@ -18,4 +18,5 @@ token.json
 .streamlit/token.json
 
 # Streamlit の秘密情報（Google連携の設定・カギをここに書く）
-.streamlit/secrets.toml
+# secrets.toml 本体と、Cloudデプロイ用に組み立てたコピーをまとめて除外
+.streamlit/secrets*.toml

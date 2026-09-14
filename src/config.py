@@ -93,7 +93,8 @@ GOOGLE_TOKEN_PATH = Path(
 )
 
 # デプロイ時用: トークンの中身を文字列で直接渡したいとき（Streamlit Cloud の Secrets など）
-GOOGLE_TOKEN_JSON = _setting("google_token_json")
+# secrets.toml では [google] セクションの token_json に書く想定
+GOOGLE_TOKEN_JSON = _setting("token_json")
 
 # Google に許可をもらう範囲：スプレッドシートの読み書きのみ
 GOOGLE_SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
