@@ -165,19 +165,107 @@ else:
             title = f"{maintenance.STATUS_EMOJI[cc.status]} {c.name}"
             if c.owner:
                 title += f"（担当: {c.owner}）"
+            editing = st.session_state.get(f"editing_car_{c.id}", False)
+
             with st.expander(
-                title, expanded=cc.status in (Status.OVERDUE, Status.SOON)
+                title, expanded=editing or cc.status in (Status.OVERDUE, Status.SOON)
             ):
-                if c.plate_number:
-                    st.caption(f"ナンバー: {c.plate_number}")
-                for item in cc.items:
-                    st.markdown(_item_line(item))
-                st.caption(
-                    "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
-                    "＋推奨間隔で計算しています。自動車税は「毎年5月」を目安に自動計算です"
-                    "（間隔や月日は src/config.py で変更できます）。"
-                    "オイル交換は、月数と走行距離のどちらか早く来た方で判定します。"
-                )
+                if editing:
+                    # ---- 編集フォーム（登録時と同じ項目に、今の内容を入れた状態）----
+                    with st.form(f"edit-car-{c.id}"):
+                        st.caption(
+                            "オイル/タイヤ交換は下の「整備記録」から、"
+                            "自動車税は自動計算のため、ここでは編集しません。"
+                        )
+                        edit_name = st.text_input(
+                            "車の名前 *", value=c.name, key=f"edit-name-{c.id}"
+                        )
+                        owner_choices = list(config.OWNER_OPTIONS)
+                        if c.owner and c.owner not in owner_choices:
+                            owner_choices.append(c.owner)
+                        owner_select_options = ["（未設定）"] + owner_choices
+                        current_owner_index = (
+                            owner_select_options.index(c.owner) if c.owner else 0
+                        )
+                        edit_owner = st.selectbox(
+                            "担当者",
+                            options=owner_select_options,
+                            index=current_owner_index,
+                            key=f"edit-owner-{c.id}",
+                        )
+                        edit_plate = st.text_input(
+                            "ナンバー",
+                            value=c.plate_number,
+                            key=f"edit-plate-{c.id}",
+                        )
+                        edit_inspection = st.date_input(
+                            "車検の期限日",
+                            value=c.inspection_due_date,
+                            format="YYYY/MM/DD",
+                            key=f"edit-inspection-{c.id}",
+                        )
+                        edit_ins_col1, edit_ins_col2 = st.columns(2)
+                        with edit_ins_col1:
+                            edit_compulsory = st.date_input(
+                                "自賠責保険の満期日",
+                                value=c.compulsory_insurance_due_date,
+                                format="YYYY/MM/DD",
+                                key=f"edit-compulsory-{c.id}",
+                            )
+                        with edit_ins_col2:
+                            edit_voluntary = st.date_input(
+                                "任意保険の満期日",
+                                value=c.voluntary_insurance_due_date,
+                                format="YYYY/MM/DD",
+                                key=f"edit-voluntary-{c.id}",
+                            )
+
+                        save_col, cancel_col = st.columns(2)
+                        with save_col:
+                            save_clicked = st.form_submit_button(
+                                "保存する", width="stretch"
+                            )
+                        with cancel_col:
+                            cancel_clicked = st.form_submit_button(
+                                "キャンセル", width="stretch"
+                            )
+
+                        if save_clicked:
+                            if not edit_name.strip():
+                                st.error("「車の名前」は必須です。")
+                            else:
+                                c.name = edit_name.strip()
+                                c.owner = (
+                                    ""
+                                    if edit_owner == "（未設定）"
+                                    else edit_owner
+                                )
+                                c.plate_number = edit_plate.strip()
+                                c.inspection_due_date = edit_inspection
+                                c.compulsory_insurance_due_date = edit_compulsory
+                                c.voluntary_insurance_due_date = edit_voluntary
+                                try:
+                                    storage.update_car(c)
+                                except Exception as e:
+                                    st.error(f"更新に失敗しました。\n\n{e}")
+                                    st.stop()
+                                st.session_state[f"editing_car_{c.id}"] = False
+                                st.success("車の情報を更新しました。")
+                                st.rerun()
+                        if cancel_clicked:
+                            st.session_state[f"editing_car_{c.id}"] = False
+                            st.rerun()
+                else:
+                    if c.plate_number:
+                        st.caption(f"ナンバー: {c.plate_number}")
+                    for item in cc.items:
+                        st.markdown(_item_line(item))
+                    st.caption(
+                        "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
+                        "＋推奨間隔で計算しています。自動車税は「毎年5月」を目安に自動計算です"
+                        "（間隔や月日は src/config.py で変更できます）。"
+                        "オイル交換は、月数と走行距離のどちらか早く来た方で判定します。"
+                    )
 
                 # ---- 現在の走行距離（更新用） ----
                 odometer_text = (
@@ -280,14 +368,27 @@ else:
                         st.success("整備記録を追加しました。")
                         st.rerun()
 
-                if st.button("この車を削除する", key=f"delete-{c.id}"):
-                    try:
-                        storage.delete_car(c.id)
-                        record_storage.delete_records_for_car(c.id)
-                    except Exception as e:
-                        st.error(f"削除に失敗しました。\n\n{e}")
-                        st.stop()
-                    st.rerun()
+                if not editing:
+                    edit_btn_col, delete_btn_col = st.columns(2)
+                    with edit_btn_col:
+                        if st.button(
+                            "編集する", key=f"edit-{c.id}", width="stretch"
+                        ):
+                            st.session_state[f"editing_car_{c.id}"] = True
+                            st.rerun()
+                    with delete_btn_col:
+                        if st.button(
+                            "この車を削除する",
+                            key=f"delete-{c.id}",
+                            width="stretch",
+                        ):
+                            try:
+                                storage.delete_car(c.id)
+                                record_storage.delete_records_for_car(c.id)
+                            except Exception as e:
+                                st.error(f"削除に失敗しました。\n\n{e}")
+                                st.stop()
+                            st.rerun()
 
 
 # =====================================================================
