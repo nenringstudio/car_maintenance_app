@@ -56,13 +56,16 @@ _STATUS_ORDER = {
 
 @dataclass
 class ItemCheck:
-    """1項目（車検 / オイル交換 / タイヤ交換）の判定結果。"""
+    """1項目（車検 / オイル交換 / タイヤ交換 など）の判定結果。"""
 
     name: str                 # "車検" など
-    due_date: date | None     # 期限（次回の目安日）
+    due_date: date | None     # 期限（次回の目安日）。日数で判定する項目のみ
     days_left: int | None     # 残り日数。マイナスなら超過日数
     status: Status
     is_estimate: bool = False  # True なら「前回＋間隔」で計算した目安
+    distance_left_km: int | None = None
+    # ↑ 距離でも判定する項目（オイル交換）だけ使う。
+    #   プラスなら次の節目まであと何km、マイナスなら超過km。
 
 
 @dataclass
@@ -119,10 +122,37 @@ def _judge(name, due_date, warn_days, today, *, is_estimate=False) -> ItemCheck:
     return ItemCheck(name, due_date, days_left, status, is_estimate)
 
 
-def _latest_date(records: list[MaintenanceRecord], record_type: RecordType) -> date | None:
-    """指定した作業内容の記録の中で、一番新しい日付を返す（無ければ None）。"""
-    dates = [r.date for r in records if r.record_type == record_type]
-    return max(dates) if dates else None
+def _worse_status(a: Status, b: Status) -> Status:
+    """2つの状態のうち、より緊急な方（悪い方）を返す。"""
+    return min(a, b, key=lambda s: _STATUS_ORDER[s])
+
+
+def _latest_record(
+    records: list[MaintenanceRecord], record_type: RecordType
+) -> MaintenanceRecord | None:
+    """指定した作業内容の記録の中で、一番新しい日付のものを返す（無ければ None）。"""
+    matching = [r for r in records if r.record_type == record_type]
+    return max(matching, key=lambda r: r.date) if matching else None
+
+
+def _judge_km(
+    current_km: int | None, last_km: int | None, warn_km: int, overdue_km: int
+) -> tuple[Status, int | None]:
+    """距離基準の判定（例: オイル交換）。
+
+    前回からの走行距離が warn_km を超えたら黄色、overdue_km を超えたら赤。
+    現在の走行距離・前回の走行距離のどちらかが未入力なら判定できない（未設定扱い）。
+    戻り値の2つめは「次の節目まであと何km」（マイナスなら超過km）。
+    """
+    if current_km is None or last_km is None:
+        return Status.UNKNOWN, None
+    traveled = current_km - last_km
+    if traveled > overdue_km:
+        return Status.OVERDUE, overdue_km - traveled
+    elif traveled > warn_km:
+        return Status.SOON, overdue_km - traveled
+    else:
+        return Status.OK, warn_km - traveled
 
 
 def next_annual_due(today: date, month: int, day: int) -> date:
@@ -174,17 +204,38 @@ def check_car(
         today,
     )
 
-    # オイル交換: 整備記録の中で一番新しい日付 ＋ 推奨間隔 を次回の目安日にする
-    last_oil = _latest_date(car_records, RecordType.OIL)
+    # オイル交換: 月数 と 距離 の両方で判定し、早く来た方（悪い方）を採用する
+    last_oil_record = _latest_record(car_records, RecordType.OIL)
+    last_oil_date = last_oil_record.date if last_oil_record else None
     oil_due = (
-        add_months(last_oil, config.OIL_CHANGE_INTERVAL_MONTHS) if last_oil else None
+        add_months(last_oil_date, config.OIL_CHANGE_INTERVAL_MONTHS)
+        if last_oil_date
+        else None
     )
-    oil = _judge(
+    oil_by_date = _judge(
         "オイル交換", oil_due, config.OIL_CHANGE_WARN_DAYS, today, is_estimate=True
     )
 
-    # タイヤ交換: 同上
-    last_tire = _latest_date(car_records, RecordType.TIRE)
+    last_oil_km = last_oil_record.odometer_km if last_oil_record else None
+    oil_km_status, oil_distance_left_km = _judge_km(
+        car.current_odometer_km,
+        last_oil_km,
+        config.OIL_CHANGE_WARN_KM,
+        config.OIL_CHANGE_OVERDUE_KM,
+    )
+
+    oil = ItemCheck(
+        name="オイル交換",
+        due_date=oil_by_date.due_date,
+        days_left=oil_by_date.days_left,
+        status=_worse_status(oil_by_date.status, oil_km_status),
+        is_estimate=True,
+        distance_left_km=oil_distance_left_km,
+    )
+
+    # タイヤ交換: オイルと同じく、記録の中で一番新しい日付 ＋ 推奨間隔（距離での判定はなし）
+    last_tire_record = _latest_record(car_records, RecordType.TIRE)
+    last_tire = last_tire_record.date if last_tire_record else None
     tire_due = (
         add_months(last_tire, config.TIRE_CHANGE_INTERVAL_MONTHS) if last_tire else None
     )

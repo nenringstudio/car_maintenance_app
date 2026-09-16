@@ -104,6 +104,18 @@ class CsvMaintenanceRecordStorage(MaintenanceRecordStorage):
         self.csv_path.parent.mkdir(parents=True, exist_ok=True)
         if not self.csv_path.exists():
             self._write_all([])
+        else:
+            self._migrate_header_if_needed()
+
+    def _migrate_header_if_needed(self) -> None:
+        """見出し行（1行目）が今の形と違っていたら、自動で書き直す。
+
+        例えば「走行距離」列を新しく追加したときに、ここで見出しと中身を揃え直す。
+        """
+        with self.csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            header = next(csv.reader(f), [])
+        if header != RECORD_FIELDNAMES:
+            self._write_all(self._read_all())
 
     # ---- ここから下は「まとめて読み書き」する内部処理 ----
 

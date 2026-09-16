@@ -32,6 +32,7 @@ FIELDNAMES = [
     "owner",                               # 担当者（例: 父 / 母 / 長男 / 長女）
     "compulsory_insurance_due_date",       # 自賠責保険の満期日
     "voluntary_insurance_due_date",        # 任意保険の満期日
+    "current_odometer_km",                 # 現在の総走行距離（km）
 ]
 
 
@@ -45,6 +46,7 @@ class Car:
     owner: str = ""
     compulsory_insurance_due_date: date | None = None  # 自賠責保険の満期日
     voluntary_insurance_due_date: date | None = None    # 任意保険の満期日
+    current_odometer_km: int | None = None              # 現在の総走行距離（km）
     # id は指定しなければ自動でユニークな文字列が入ります
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -65,6 +67,9 @@ class Car:
             ),
             "voluntary_insurance_due_date": _date_to_str(
                 self.voluntary_insurance_due_date
+            ),
+            "current_odometer_km": (
+                "" if self.current_odometer_km is None else str(self.current_odometer_km)
             ),
         }
 
@@ -87,6 +92,7 @@ class Car:
             voluntary_insurance_due_date=_str_to_date(
                 row.get("voluntary_insurance_due_date")
             ),
+            current_odometer_km=_str_to_optional_int(row.get("current_odometer_km")),
         )
 
 
@@ -112,18 +118,19 @@ RECORD_TYPE_LABELS: dict[RecordType, str] = {
     RecordType.OTHER: "その他",
 }
 
-RECORD_FIELDNAMES = ["id", "car_id", "date", "record_type", "cost", "memo"]
+RECORD_FIELDNAMES = ["id", "car_id", "date", "record_type", "cost", "memo", "odometer_km"]
 
 
 @dataclass
 class MaintenanceRecord:
-    """整備記録1件分（いつ・何を・いくらで・メモ）。"""
+    """整備記録1件分（いつ・何を・いくらで・メモ・走行距離）。"""
 
     car_id: str            # どの車の記録か（Car.id）
     date: date              # 作業した日
     record_type: RecordType  # オイル交換 / タイヤ交換 / 車検 / その他
     cost: int | None = None  # 費用（円）。未入力なら None
     memo: str = ""           # メモ（任意）
+    odometer_km: int | None = None  # 作業した時点の走行距離（km・任意）
     # id は指定しなければ自動でユニークな文字列が入ります
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -136,6 +143,7 @@ class MaintenanceRecord:
             "record_type": self.record_type.value,
             "cost": "" if self.cost is None else str(self.cost),
             "memo": self.memo,
+            "odometer_km": "" if self.odometer_km is None else str(self.odometer_km),
         }
 
     @classmethod
@@ -146,8 +154,9 @@ class MaintenanceRecord:
             car_id=(row.get("car_id") or "").strip(),
             date=_str_to_date(row.get("date")) or date.today(),
             record_type=_str_to_record_type(row.get("record_type")),
-            cost=_str_to_cost(row.get("cost")),
+            cost=_str_to_optional_int(row.get("cost")),
             memo=(row.get("memo") or "").strip(),
+            odometer_km=_str_to_optional_int(row.get("odometer_km")),
         )
 
 
@@ -159,8 +168,8 @@ def _str_to_record_type(s: str | None) -> RecordType:
         return RecordType.OTHER
 
 
-def _str_to_cost(s: str | None) -> int | None:
-    """文字列 -> 費用（円）。空や変な値なら None。"""
+def _str_to_optional_int(s: str | None) -> int | None:
+    """文字列 -> 整数（費用や走行距離など）。空や変な値なら None。"""
     s = (s or "").strip()
     if not s:
         return None

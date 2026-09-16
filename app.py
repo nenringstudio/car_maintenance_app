@@ -34,12 +34,20 @@ def _item_line(item: maintenance.ItemCheck) -> str:
     if item.status == Status.UNKNOWN:
         return f"{emoji} **{item.name}**：:gray[未設定]"
 
-    when = item.due_date.strftime("%Y/%m/%d")
-    suffix = "・目安" if item.is_estimate else ""
-    if item.status == Status.OVERDUE:
-        detail = f"{when}{suffix} を {abs(item.days_left)}日 超過"
-    else:
-        detail = f"あと {item.days_left}日（{when}{suffix}）"
+    parts = []
+    if item.due_date is not None:
+        when = item.due_date.strftime("%Y/%m/%d")
+        suffix = "・目安" if item.is_estimate else ""
+        if item.days_left is not None and item.days_left < 0:
+            parts.append(f"{when}{suffix} を {abs(item.days_left)}日 超過")
+        else:
+            parts.append(f"あと {item.days_left}日（{when}{suffix}）")
+    if item.distance_left_km is not None:
+        if item.distance_left_km < 0:
+            parts.append(f"{abs(item.distance_left_km):,}km 超過")
+        else:
+            parts.append(f"あと {item.distance_left_km:,}km")
+    detail = "　／　".join(parts)
     return f"{emoji} **{item.name}**：:{color}[{detail}]"
 
 
@@ -48,6 +56,8 @@ def _record_line(record: MaintenanceRecord) -> str:
     label = RECORD_TYPE_LABELS[record.record_type]
     when = record.date.strftime("%Y/%m/%d")
     text = f"{when}　**{label}**"
+    if record.odometer_km is not None:
+        text += f"　{record.odometer_km:,}km"
     if record.cost is not None:
         text += f"　￥{record.cost:,}"
     if record.memo:
@@ -166,7 +176,37 @@ else:
                     "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
                     "＋推奨間隔で計算しています。自動車税は「毎年5月」を目安に自動計算です"
                     "（間隔や月日は src/config.py で変更できます）。"
+                    "オイル交換は、月数と走行距離のどちらか早く来た方で判定します。"
                 )
+
+                # ---- 現在の走行距離（更新用） ----
+                odometer_text = (
+                    f"{c.current_odometer_km:,}km"
+                    if c.current_odometer_km is not None
+                    else "未設定"
+                )
+                st.caption(f"現在の総走行距離: {odometer_text}")
+                with st.form(f"update-odometer-{c.id}", clear_on_submit=False):
+                    new_odometer = st.number_input(
+                        "現在の総走行距離（km）",
+                        min_value=0,
+                        step=100,
+                        value=c.current_odometer_km,
+                    )
+                    odometer_submitted = st.form_submit_button(
+                        "更新する", width="stretch"
+                    )
+                    if odometer_submitted:
+                        c.current_odometer_km = (
+                            int(new_odometer) if new_odometer is not None else None
+                        )
+                        try:
+                            storage.update_car(c)
+                        except Exception as e:
+                            st.error(f"更新に失敗しました。\n\n{e}")
+                            st.stop()
+                        st.success("走行距離を更新しました。")
+                        st.rerun()
 
                 # ---- 整備履歴（新しい順） ----
                 st.markdown("**整備履歴**")
@@ -211,9 +251,10 @@ else:
                             "費用（円・任意）", min_value=0, step=100, value=None
                         )
                     with rec_col4:
-                        memo = st.text_input(
-                            "メモ（任意）", placeholder="例: 4本とも交換"
+                        record_odometer_km = st.number_input(
+                            "走行距離（km・任意）", min_value=0, step=100, value=None
                         )
+                    memo = st.text_input("メモ（任意）", placeholder="例: 4本とも交換")
                     record_submitted = st.form_submit_button(
                         "記録を追加する", width="stretch"
                     )
@@ -226,6 +267,11 @@ else:
                                     record_type=record_type,
                                     cost=int(cost) if cost is not None else None,
                                     memo=memo.strip(),
+                                    odometer_km=(
+                                        int(record_odometer_km)
+                                        if record_odometer_km is not None
+                                        else None
+                                    ),
                                 )
                             )
                         except Exception as e:
@@ -271,6 +317,10 @@ with st.form("add-car-form", clear_on_submit=True):
             "任意保険の満期日", value=None, format="YYYY/MM/DD"
         )
 
+    current_odometer_km = st.number_input(
+        "現在の総走行距離（km・任意）", min_value=0, step=100, value=None
+    )
+
     st.caption("直近の交換日が分かれば、整備履歴の1件目として登録されます（任意）。")
     col1, col2 = st.columns(2)
     with col1:
@@ -295,6 +345,9 @@ with st.form("add-car-form", clear_on_submit=True):
                 inspection_due_date=inspection_due_date,
                 compulsory_insurance_due_date=compulsory_insurance_due_date,
                 voluntary_insurance_due_date=voluntary_insurance_due_date,
+                current_odometer_km=(
+                    int(current_odometer_km) if current_odometer_km is not None else None
+                ),
             )
             try:
                 storage.add_car(new_car)
