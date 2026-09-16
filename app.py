@@ -95,6 +95,9 @@ else:
     # ※ オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付から自動計算しています。
     checks = maintenance.check_all(cars, records)
 
+    # マトリックス表などから「この車を見たい」と指定されて来た場合の car_id
+    focus_car_id = st.query_params.get("car_id")
+
     # (a) 絞り込み（担当者 / 状態）
     #     ※ ここで絞り込んでも、並び順は checks の順番（緊急な車が先頭）のまま変わりません。
     owner_options = sorted(
@@ -120,6 +123,10 @@ else:
         filtered = [cc for cc in filtered if cc.car.owner in selected_owners]
     if selected_statuses:
         filtered = [cc for cc in filtered if cc.status in selected_statuses]
+
+    # マトリックス表から来た車が絞り込みで隠れてしまわないよう、そのときは絞り込みを外す
+    if focus_car_id and not any(cc.car.id == focus_car_id for cc in filtered):
+        filtered = checks
 
     # (b) 全体のお知らせ（絞り込み後の件数）
     overdue = [cc for cc in filtered if cc.status == Status.OVERDUE]
@@ -166,10 +173,16 @@ else:
             if c.owner:
                 title += f"（担当: {c.owner}）"
             editing = st.session_state.get(f"editing_car_{c.id}", False)
+            is_focused = c.id == focus_car_id
 
             with st.expander(
-                title, expanded=editing or cc.status in (Status.OVERDUE, Status.SOON)
+                title,
+                expanded=editing
+                or is_focused
+                or cc.status in (Status.OVERDUE, Status.SOON),
             ):
+                if is_focused:
+                    st.caption("📊 マトリックス表からこの車が指定されています。")
                 if editing:
                     # ---- 編集フォーム（登録時と同じ項目に、今の内容を入れた状態）----
                     with st.form(f"edit-car-{c.id}"):
