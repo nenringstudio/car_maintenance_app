@@ -38,7 +38,14 @@ def _cell_caption(item: maintenance.ItemCheck) -> str:
 
 
 # ---- 画面全体の設定（横に長い表なので wide レイアウト）----
-st.set_page_config(page_title="マトリックス表", page_icon="📊", layout="wide")
+# initial_sidebar_state="expanded" を指定しないと、初期値の "auto" では
+# 画面が狭いときにページ切り替えサイドバーが自動で閉じてしまうため明示している。
+st.set_page_config(
+    page_title="マトリックス表",
+    page_icon="📊",
+    layout="wide",
+    initial_sidebar_state="expanded",
+)
 
 st.title("📊 マトリックス表")
 st.caption("車ごとの状態を、項目を縦・車を横にして比較できます。")

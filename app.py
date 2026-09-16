@@ -66,7 +66,14 @@ def _record_line(record: MaintenanceRecord) -> str:
 
 
 # ---- 画面全体の設定（スマホ向けに centered = 中央寄せの1カラム）----
-st.set_page_config(page_title="車の情報管理", page_icon="🚗", layout="centered")
+# initial_sidebar_state="expanded" を指定しないと、初期値の "auto" では
+# 画面が狭いときにページ切り替えサイドバーが自動で閉じてしまうため明示している。
+st.set_page_config(
+    page_title="車の情報管理",
+    page_icon="🚗",
+    layout="centered",
+    initial_sidebar_state="expanded",
+)
 
 # 保存先（今は CSV。将来スプレッドシートに差し替え予定）
 # storage ……… 車の基本情報　/　record_storage ……… 整備記録（履歴）
