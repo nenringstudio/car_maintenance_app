@@ -141,3 +141,18 @@ OIL_CHANGE_WARN_DAYS = 30          # 目安日まで30日以内になったら�
 # すり減りによる買い替え目安なら 48〜60（4〜5年）くらいに変更してください。
 TIRE_CHANGE_INTERVAL_MONTHS = 6
 TIRE_CHANGE_WARN_DAYS = 30
+
+# --- 自動車税 ---
+# 車ごとの日付は持たず、「毎年○月○日」を目安に自動で判定します。
+# （初期値: 5月31日。都道府県によって多少前後する場合は日付を調整してください）
+VEHICLE_TAX_DUE_MONTH = 5
+VEHICLE_TAX_DUE_DAY = 31
+VEHICLE_TAX_WARN_DAYS = 60         # 目安日まで60日以内になったら黄色
+
+# --- 自賠責保険 ---
+# 満期日は車ごとに直接入力します（車検と同じ扱い）。
+COMPULSORY_INSURANCE_WARN_DAYS = 60
+
+# --- 任意保険 ---
+# 満期日は車ごとに直接入力します（車検と同じ扱い）。
+VOLUNTARY_INSURANCE_WARN_DAYS = 60

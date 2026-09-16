@@ -89,6 +89,13 @@ class CarCheck:
         )
         return (_STATUS_ORDER[self.status], soonest)
 
+    def item(self, name: str) -> ItemCheck:
+        """名前（"車検" など）で該当する項目を取り出す。"""
+        for i in self.items:
+            if i.name == name:
+                return i
+        raise KeyError(name)
+
 
 def add_months(d: date, months: int) -> date:
     """日付に「月」を足す。月末は自動調整（例: 8/31 + 6か月 = 2/28）。"""
@@ -118,6 +125,18 @@ def _latest_date(records: list[MaintenanceRecord], record_type: RecordType) -> d
     return max(dates) if dates else None
 
 
+def next_annual_due(today: date, month: int, day: int) -> date:
+    """「毎年○月○日」の、次に来る日付を返す。
+
+    今年のその日がもう過ぎていたら、来年の同じ日を返す
+    （例: 今日が6月なら、次の自動車税は来年の5月31日）。
+    """
+    candidate = date(today.year, month, day)
+    if candidate < today:
+        candidate = date(today.year + 1, month, day)
+    return candidate
+
+
 def check_car(
     car: Car, records: list[MaintenanceRecord], today: date | None = None
 ) -> CarCheck:
@@ -131,6 +150,28 @@ def check_car(
     # 車検: 記録された期限日をそのまま使う（履歴とは別に、車ごとに直接持つ値）
     inspection = _judge(
         "車検", car.inspection_due_date, config.INSPECTION_WARN_DAYS, today
+    )
+
+    # 自動車税: 車ごとの日付は持たず、「次に来る○月○日」を自動計算する
+    tax_due = next_annual_due(
+        today, config.VEHICLE_TAX_DUE_MONTH, config.VEHICLE_TAX_DUE_DAY
+    )
+    vehicle_tax = _judge(
+        "自動車税", tax_due, config.VEHICLE_TAX_WARN_DAYS, today, is_estimate=True
+    )
+
+    # 自賠責保険 / 任意保険: 車検と同じく、満期日をそのまま使う
+    compulsory_insurance = _judge(
+        "自賠責保険",
+        car.compulsory_insurance_due_date,
+        config.COMPULSORY_INSURANCE_WARN_DAYS,
+        today,
+    )
+    voluntary_insurance = _judge(
+        "任意保険",
+        car.voluntary_insurance_due_date,
+        config.VOLUNTARY_INSURANCE_WARN_DAYS,
+        today,
     )
 
     # オイル交換: 整備記録の中で一番新しい日付 ＋ 推奨間隔 を次回の目安日にする
@@ -151,7 +192,17 @@ def check_car(
         "タイヤ交換", tire_due, config.TIRE_CHANGE_WARN_DAYS, today, is_estimate=True
     )
 
-    return CarCheck(car=car, items=[inspection, oil, tire])
+    return CarCheck(
+        car=car,
+        items=[
+            inspection,
+            vehicle_tax,
+            compulsory_insurance,
+            voluntary_insurance,
+            oil,
+            tire,
+        ],
+    )
 
 
 def check_all(

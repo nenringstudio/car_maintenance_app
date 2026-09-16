@@ -1,7 +1,8 @@
 """家族用 車の情報管理アプリ
 
   ・車の情報を「登録」して「一覧表示」する
-  ・車検 / オイル交換 / タイヤ交換 の期限が近い車を色分けで表示する
+  ・車検 / 自動車税 / 自賠責保険 / 任意保険 / オイル交換 / タイヤ交換
+    の期限が近い車を色分けで表示する
   ・オイル交換 / タイヤ交換 / 車検 / その他の整備記録を、車ごとに履歴として残す
 （メール送信は次のステップで追加します）
 
@@ -134,9 +135,12 @@ else:
                     "名前": cc.car.name,
                     "担当者": cc.car.owner or "-",
                     "ナンバー": cc.car.plate_number or "-",
-                    "車検期限": _show(cc.car.inspection_due_date),
-                    "次回オイル目安": _show(cc.items[1].due_date),
-                    "次回タイヤ目安": _show(cc.items[2].due_date),
+                    "車検期限": _show(cc.item("車検").due_date),
+                    "自動車税": _show(cc.item("自動車税").due_date),
+                    "自賠責保険": _show(cc.item("自賠責保険").due_date),
+                    "任意保険": _show(cc.item("任意保険").due_date),
+                    "次回オイル目安": _show(cc.item("オイル交換").due_date),
+                    "次回タイヤ目安": _show(cc.item("タイヤ交換").due_date),
                 }
                 for cc in filtered
             ],
@@ -160,7 +164,8 @@ else:
                     st.markdown(_item_line(item))
                 st.caption(
                     "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
-                    "＋推奨間隔で計算しています（間隔は src/config.py で変更できます）。"
+                    "＋推奨間隔で計算しています。自動車税は「毎年5月」を目安に自動計算です"
+                    "（間隔や月日は src/config.py で変更できます）。"
                 )
 
                 # ---- 整備履歴（新しい順） ----
@@ -256,6 +261,16 @@ with st.form("add-car-form", clear_on_submit=True):
         "車検の期限日", value=None, format="YYYY/MM/DD"
     )
 
+    ins_col1, ins_col2 = st.columns(2)
+    with ins_col1:
+        compulsory_insurance_due_date = st.date_input(
+            "自賠責保険の満期日", value=None, format="YYYY/MM/DD"
+        )
+    with ins_col2:
+        voluntary_insurance_due_date = st.date_input(
+            "任意保険の満期日", value=None, format="YYYY/MM/DD"
+        )
+
     st.caption("直近の交換日が分かれば、整備履歴の1件目として登録されます（任意）。")
     col1, col2 = st.columns(2)
     with col1:
@@ -278,6 +293,8 @@ with st.form("add-car-form", clear_on_submit=True):
                 owner="" if owner == "（未設定）" else owner,
                 plate_number=plate_number.strip(),
                 inspection_due_date=inspection_due_date,
+                compulsory_insurance_due_date=compulsory_insurance_due_date,
+                voluntary_insurance_due_date=voluntary_insurance_due_date,
             )
             try:
                 storage.add_car(new_car)

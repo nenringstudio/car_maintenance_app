@@ -20,15 +20,18 @@ from enum import Enum
 # =====================================================================
 
 # CSV / スプレッドシートの列の並び順（この順で1行に並びます）
-# ※ owner は後から追加した列。既存データとの互換のため一番最後に置いてあります。
+# ※ owner 以降は後から追加した列。既存データとの互換のため末尾に足しています。
 # ※ 以前あった last_oil_change_date / last_tire_change_date は、
 #   整備記録（MaintenanceRecord）に移行したのでここには含みません。
+# ※ 自動車税は「毎年5月」から自動計算するだけなので、列（保存する値）はありません。
 FIELDNAMES = [
-    "id",                      # アプリ内部で使う識別番号（自動採番）
-    "name",                    # 車の名前（例: パパの車）
-    "plate_number",            # ナンバー
-    "inspection_due_date",     # 車検の期限日
-    "owner",                   # 担当者（例: 父 / 母 / 長男 / 長女）
+    "id",                                  # アプリ内部で使う識別番号（自動採番）
+    "name",                                # 車の名前（例: パパの車）
+    "plate_number",                        # ナンバー
+    "inspection_due_date",                 # 車検の期限日
+    "owner",                               # 担当者（例: 父 / 母 / 長男 / 長女）
+    "compulsory_insurance_due_date",       # 自賠責保険の満期日
+    "voluntary_insurance_due_date",        # 任意保険の満期日
 ]
 
 
@@ -40,6 +43,8 @@ class Car:
     plate_number: str = ""
     inspection_due_date: date | None = None
     owner: str = ""
+    compulsory_insurance_due_date: date | None = None  # 自賠責保険の満期日
+    voluntary_insurance_due_date: date | None = None    # 任意保険の満期日
     # id は指定しなければ自動でユニークな文字列が入ります
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -55,6 +60,12 @@ class Car:
             "plate_number": self.plate_number,
             "inspection_due_date": _date_to_str(self.inspection_due_date),
             "owner": self.owner,
+            "compulsory_insurance_due_date": _date_to_str(
+                self.compulsory_insurance_due_date
+            ),
+            "voluntary_insurance_due_date": _date_to_str(
+                self.voluntary_insurance_due_date
+            ),
         }
 
     @classmethod
@@ -70,6 +81,12 @@ class Car:
             plate_number=(row.get("plate_number") or "").strip(),
             inspection_due_date=_str_to_date(row.get("inspection_due_date")),
             owner=(row.get("owner") or "").strip(),
+            compulsory_insurance_due_date=_str_to_date(
+                row.get("compulsory_insurance_due_date")
+            ),
+            voluntary_insurance_due_date=_str_to_date(
+                row.get("voluntary_insurance_due_date")
+            ),
         )
 
 
