@@ -94,6 +94,17 @@ st.markdown(
     }
     .st-key-matrix_scroll [data-testid="stHorizontalBlock"] > div:first-child {
         min-width: 6rem;
+        /* 項目名の列を横スクロールしても画面に固定する */
+        position: sticky;
+        left: 0;
+        z-index: 1;
+        background-color: #ffffff;
+        box-shadow: 2px 0 4px -2px rgba(0, 0, 0, 0.25);
+    }
+    @media (prefers-color-scheme: dark) {
+        .st-key-matrix_scroll [data-testid="stHorizontalBlock"] > div:first-child {
+            background-color: rgb(14, 17, 23);
+        }
     }
     </style>
     """,
