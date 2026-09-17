@@ -26,7 +26,7 @@
   - 見出し行（列構成）が変わったときは、アプリ起動時に自動で今の形に揃えるので、手動で編集する必要はありません
   - 以前のバージョンで車に直接持たせていた「直近のオイル/タイヤ交換日」は、初回起動時に自動で整備記録の1件目へ移行されます
 
-> 期限が近づいたらメールで知らせる機能は、次のステップで追加予定です。
+- **毎週自動で期限をチェックし、危ない車があればメールで知らせる**（GitHub Actions + Gmail。セットアップ手順は下記）
 
 ## これから作る予定
 
@@ -35,7 +35,7 @@
 | 1（完了） | 車の情報を登録・一覧表示する画面 |
 | 2（完了） | 期限が近い車を色分けで目立たせる |
 | 3（完了） | 保存先を Google スプレッドシートに切り替え |
-| 4 | GitHub Actions + Gmail で定期チェック・メール通知 |
+| 4（完了） | GitHub Actions + Gmail で定期チェック・メール通知 |
 
 ---
 
@@ -150,6 +150,74 @@ streamlit run app.py
 
 ---
 
+## メール通知のセットアップ（ステップ4）
+
+車検・オイル・保険などの期限が近づいたら（🔴期限切れ・🟡期限が近い）、
+**毎週月曜の朝（日本時間7時ごろ）に自動でメールが届く**ようにできます。
+
+仕組み: Streamlit のアプリ自体には「決まった時間に自動実行する」機能が無いため、
+GitHub の **GitHub Actions** という「決まった時間に自動でプログラムを動かす」仕組みを使います。
+GitHub Actions が毎週スプレッドシートをチェックし、危ない車があれば
+Gmail の SMTP（メール送信の仕組み）を使ってメールを送ります。
+
+必要な設定は2つだけです。
+
+### 1. Gmail の「アプリパスワード」を取得する
+
+アプリパスワードは、あなたの本来のGoogleパスワードの代わりに、
+プログラムからのメール送信だけに使う専用の合言葉です。
+
+1. **2段階認証を有効にする**（まだの場合）
+   [Google アカウントの管理](https://myaccount.google.com/) →「セキュリティ」→「2段階認証プロセス」を有効化
+   （アプリパスワードは2段階認証が有効なアカウントでしか作成できません）
+2. [Google アカウントのアプリパスワード作成ページ](https://myaccount.google.com/apppasswords) を開く
+3. 名前欄に「車メンテアプリ」など分かる名前を入れて「作成」
+4. 表示される **16桁の英字**（例: `abcdwxyzabcdwxyz`）をコピーしておく
+   （スペースが入って表示されますが、使うときはスペースを除いた16文字です）
+
+> ⚠️ このアプリパスワードは、あなたのGmailアカウントに（制限付きで）ログインできる大事な合言葉です。
+> 他人に教えたり、次の手順以外の場所に貼り付けたりしないでください。
+
+### 2. GitHub Secrets を設定する
+
+GitHub Secrets は、GitHub 上でパスワードなどの「秘密の値」を安全に保管できる場所です。
+ここに設定した値は、GitHub Actions の実行中だけ環境変数として使われ、
+リポジトリのコードやログには表示されません。
+
+GitHubでこのリポジトリを開き、**Settings → Secrets and variables → Actions →
+New repository secret** から、以下の5つを1つずつ登録してください。
+
+| Secret 名 | 値 |
+| --- | --- |
+| `CAR_APP_SPREADSHEET_URL` | いつも使っているスプレッドシートのURL（`.streamlit/secrets.toml` の `spreadsheet_url` と同じもの） |
+| `CAR_APP_TOKEN_JSON` | Google へのログイン情報。`.streamlit/secrets.cloud.toml` の `[google]` セクションにある `token_json` の中身（`'''...'''` の中の `{...}` 部分）をそのまま貼り付け |
+| `GMAIL_ADDRESS` | メールの送信元にする Gmail アドレス（例: `your.name@gmail.com`） |
+| `GMAIL_APP_PASSWORD` | 上で取得した16桁のアプリパスワード（スペースは入れない） |
+| `ALERT_EMAIL_TO` | メールを受け取りたいアドレス（送信元と同じでもOK） |
+
+`CAR_APP_TOKEN_JSON` がまだ手元に無い場合（Streamlit Cloud へのデプロイをまだしていない場合）は、
+先に「Google スプレッドシート連携のセットアップ」の手順3（`python scripts/authorize_google.py`）を
+実行し、できた `.streamlit/token.json` の中身をそのまま貼り付けてください。
+
+### 3. 動作確認
+
+設定が終わったら、次の日曜〜月曜を待たなくても手動で試せます。
+
+1. GitHub の画面上部「**Actions**」タブを開く
+2. 左側の「車の期限チェック・メール通知」をクリック
+3. 右側の「**Run workflow**」ボタン→もう一度「Run workflow」で今すぐ実行
+4. 実行後、一覧に緑のチェック（成功）が付けば完了。危ない車があればメールが届きます
+   - 🔴🟡の車が1台も無いときは「メールは送信しません」というログだけが出て、これも正常です
+   - 赤い×が付いた場合はログを開くとエラーの詳細が読めます（アプリパスワードの入力ミスなどが多い原因です）
+
+### 実行タイミングを変えたいとき
+
+[`.github/workflows/check_expiry.yml`](.github/workflows/check_expiry.yml) の
+`cron: "0 22 * * 0"` を書き換えると変更できます（UTC指定・日本時間は+9時間）。
+例えば「日本時間 毎日朝7時」にしたい場合は `"0 22 * * *"` にします。
+
+---
+
 ## フォルダ構成
 
 ```
@@ -157,10 +225,14 @@ car_maintenance_app/
 ├── app.py                    … 画面本体・登録一覧ページ（これを streamlit run で起動）
 ├── pages/
 │   └── 1_マトリックス表.py    … 車を横並びで比較する表のページ
+├── .github/
+│   └── workflows/
+│       └── check_expiry.yml  … 毎週の期限チェック・メール通知（GitHub Actions）
 ├── requirements.txt          … 使うライブラリ一覧
 ├── client_secret_....json    … Google OAuth のカギ（Git対象外・要手動配置）
 ├── scripts/
-│   └── authorize_google.py   … 【初回だけ】Googleにログインしてトークンを作る
+│   ├── authorize_google.py     … 【初回だけ】Googleにログインしてトークンを作る
+│   └── send_expiry_alerts.py   … 期限チェック＆メール送信の本体（GitHub Actionsから実行）
 ├── .streamlit/
 │   ├── secrets.toml.example  … 設定の見本（コピーして使う）
 │   └── secrets.toml          … 実際の設定・トークン（Git対象外）

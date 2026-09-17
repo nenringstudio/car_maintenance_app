@@ -1,0 +1,35 @@
+name: 車の期限チェック・メール通知
+
+# 毎週月曜 7:00（日本時間）に自動実行。
+# cron は UTC 指定なので "22 * * 0"（日曜22:00 UTC）＝ 月曜7:00 JST。
+# GitHub の画面右上「Actions」タブ→このワークフロー→「Run workflow」でも
+# いつでも手動実行して試せます（workflow_dispatch）。
+on:
+  schedule:
+    - cron: "0 22 * * 0"
+  workflow_dispatch: {}
+
+jobs:
+  check-and-notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: リポジトリを取得
+        uses: actions/checkout@v4
+
+      - name: Python をセットアップ
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: 必要なライブラリをインストール
+        run: pip install -r requirements.txt
+
+      - name: 期限チェック・必要ならメール送信
+        env:
+          CAR_APP_BACKEND: gsheets
+          CAR_APP_SPREADSHEET_URL: ${{ secrets.CAR_APP_SPREADSHEET_URL }}
+          CAR_APP_TOKEN_JSON: ${{ secrets.CAR_APP_TOKEN_JSON }}
+          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          ALERT_EMAIL_TO: ${{ secrets.ALERT_EMAIL_TO }}
+        run: python scripts/send_expiry_alerts.py
