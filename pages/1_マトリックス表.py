@@ -67,7 +67,7 @@ if not cars:
 checks = maintenance.check_all(cars, records)
 
 # ---- 絞り込み（担当者）。一覧画面と同じ考え方 ----
-owner_options = sorted({c.owner for c in cars if c.owner} | set(config.OWNER_OPTIONS))
+owner_options = sorted({c.owner for c in cars if c.owner} | set(config.PERSON_IN_CHARGE))
 selected_owners = st.multiselect(
     "担当者で絞り込み", options=owner_options, placeholder="すべて"
 )

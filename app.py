@@ -108,7 +108,7 @@ else:
     # (a) 絞り込み（担当者 / 状態）
     #     ※ ここで絞り込んでも、並び順は checks の順番（緊急な車が先頭）のまま変わりません。
     owner_options = sorted(
-        {c.owner for c in cars if c.owner} | set(config.OWNER_OPTIONS)
+        {c.owner for c in cars if c.owner} | set(config.PERSON_IN_CHARGE)
     )
     status_options = [Status.OVERDUE, Status.SOON, Status.OK, Status.UNKNOWN]
 
@@ -204,7 +204,7 @@ else:
                         edit_name = st.text_input(
                             "車の名前 *", value=c.name, key=f"edit-name-{c.id}"
                         )
-                        owner_choices = list(config.OWNER_OPTIONS)
+                        owner_choices = list(config.PERSON_IN_CHARGE)
                         if c.owner and c.owner not in owner_choices:
                             owner_choices.append(c.owner)
                         owner_select_options = ["（未設定）"] + owner_choices
@@ -448,8 +448,8 @@ with st.form("add-car-form", clear_on_submit=True):
     name = st.text_input("車の名前 *", placeholder="例: パパの車")
     owner = st.selectbox(
         "担当者",
-        options=["（未設定）"] + config.OWNER_OPTIONS,
-        help="選択肢を増やしたり変えたりしたいときは src/config.py の OWNER_OPTIONS を編集してください。",
+        options=["（未設定）"] + config.PERSON_IN_CHARGE,
+        help="選択肢を増やしたり変えたりしたいときは src/config.py の PERSON_IN_CHARGE を編集してください。",
     )
     plate_number = st.text_input("ナンバー", placeholder="例: 品川 300 あ 12-34")
     inspection_due_date = st.date_input(
