@@ -51,6 +51,23 @@ def _item_line(item: maintenance.ItemCheck) -> str:
     return f"{emoji} **{item.name}**：:{color}[{detail}]"
 
 
+def _elapsed_years_months(start: date, today: date) -> tuple[int, int] | None:
+    """start から today までの経過期間を (年, 月) で返す。
+
+    start が未来の日付など計算できない場合は None。
+    """
+    if start > today:
+        return None
+    years = today.year - start.year
+    months = today.month - start.month
+    if today.day < start.day:
+        months -= 1
+    if months < 0:
+        years -= 1
+        months += 12
+    return years, months
+
+
 def _record_line(record: MaintenanceRecord) -> str:
     """整備記録1件を、1行のテキストにする。"""
     label = RECORD_TYPE_LABELS[record.record_type]
@@ -243,6 +260,22 @@ else:
                                 format="YYYY/MM/DD",
                                 key=f"edit-voluntary-{c.id}",
                             )
+                        edit_delivery_col1, edit_delivery_col2 = st.columns(2)
+                        with edit_delivery_col1:
+                            edit_delivery_date = st.date_input(
+                                "納車日",
+                                value=c.delivery_date,
+                                format="YYYY/MM/DD",
+                                key=f"edit-delivery-date-{c.id}",
+                            )
+                        with edit_delivery_col2:
+                            edit_delivery_odometer = st.number_input(
+                                "納車時の走行距離（km）",
+                                min_value=0,
+                                step=100,
+                                value=c.delivery_odometer_km,
+                                key=f"edit-delivery-odometer-{c.id}",
+                            )
 
                         save_col, cancel_col = st.columns(2)
                         with save_col:
@@ -268,6 +301,12 @@ else:
                                 c.inspection_due_date = edit_inspection
                                 c.compulsory_insurance_due_date = edit_compulsory
                                 c.voluntary_insurance_due_date = edit_voluntary
+                                c.delivery_date = edit_delivery_date
+                                c.delivery_odometer_km = (
+                                    int(edit_delivery_odometer)
+                                    if edit_delivery_odometer is not None
+                                    else None
+                                )
                                 try:
                                     storage.update_car(c)
                                 except Exception as e:
@@ -290,6 +329,25 @@ else:
                         "（間隔や月日は src/config.py で変更できます）。"
                         "オイル交換は、月数と走行距離のどちらか早く来た方で判定します。"
                     )
+
+                    # ---- 納車日からの経過期間 / 納車後の総走行距離 ----
+                    # 納車日・納車時の走行距離が未入力の車は、この行を出さない。
+                    if c.delivery_date is not None:
+                        elapsed = _elapsed_years_months(c.delivery_date, date.today())
+                        if elapsed is not None:
+                            elapsed_years, elapsed_months = elapsed
+                            st.caption(
+                                f"納車日: {c.delivery_date.strftime('%Y/%m/%d')}"
+                                f"（経過 {elapsed_years}年{elapsed_months}か月）"
+                            )
+                    if (
+                        c.current_odometer_km is not None
+                        and c.delivery_odometer_km is not None
+                    ):
+                        distance_since_delivery = (
+                            c.current_odometer_km - c.delivery_odometer_km
+                        )
+                        st.caption(f"納車後の走行距離: {distance_since_delivery:,}km")
 
                 # ---- 現在の走行距離（更新用） ----
                 odometer_text = (
@@ -470,6 +528,16 @@ with st.form("add-car-form", clear_on_submit=True):
         "現在の総走行距離（km・任意）", min_value=0, step=100, value=None
     )
 
+    delivery_col1, delivery_col2 = st.columns(2)
+    with delivery_col1:
+        delivery_date = st.date_input(
+            "納車日（任意）", value=None, format="YYYY/MM/DD"
+        )
+    with delivery_col2:
+        delivery_odometer_km = st.number_input(
+            "納車時の走行距離（km・任意）", min_value=0, step=100, value=None
+        )
+
     st.caption("直近の交換日が分かれば、整備履歴の1件目として登録されます（任意）。")
     col1, col2 = st.columns(2)
     with col1:
@@ -496,6 +564,12 @@ with st.form("add-car-form", clear_on_submit=True):
                 voluntary_insurance_due_date=voluntary_insurance_due_date,
                 current_odometer_km=(
                     int(current_odometer_km) if current_odometer_km is not None else None
+                ),
+                delivery_date=delivery_date,
+                delivery_odometer_km=(
+                    int(delivery_odometer_km)
+                    if delivery_odometer_km is not None
+                    else None
                 ),
             )
             try:

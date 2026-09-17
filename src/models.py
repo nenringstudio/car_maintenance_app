@@ -33,6 +33,8 @@ FIELDNAMES = [
     "compulsory_insurance_due_date",       # 自賠責保険の満期日
     "voluntary_insurance_due_date",        # 任意保険の満期日
     "current_odometer_km",                 # 現在の総走行距離（km）
+    "delivery_date",                       # 納車日
+    "delivery_odometer_km",                # 納車時の走行距離（km）
 ]
 
 
@@ -47,6 +49,8 @@ class Car:
     compulsory_insurance_due_date: date | None = None  # 自賠責保険の満期日
     voluntary_insurance_due_date: date | None = None    # 任意保険の満期日
     current_odometer_km: int | None = None              # 現在の総走行距離（km）
+    delivery_date: date | None = None                   # 納車日
+    delivery_odometer_km: int | None = None             # 納車時の走行距離（km）
     # id は指定しなければ自動でユニークな文字列が入ります
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -71,6 +75,10 @@ class Car:
             "current_odometer_km": (
                 "" if self.current_odometer_km is None else str(self.current_odometer_km)
             ),
+            "delivery_date": _date_to_str(self.delivery_date),
+            "delivery_odometer_km": (
+                "" if self.delivery_odometer_km is None else str(self.delivery_odometer_km)
+            ),
         }
 
     @classmethod
@@ -93,6 +101,8 @@ class Car:
                 row.get("voluntary_insurance_due_date")
             ),
             current_odometer_km=_str_to_optional_int(row.get("current_odometer_km")),
+            delivery_date=_str_to_date(row.get("delivery_date")),
+            delivery_odometer_km=_str_to_optional_int(row.get("delivery_odometer_km")),
         )
 
 
