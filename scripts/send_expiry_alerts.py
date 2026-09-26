@@ -34,6 +34,9 @@ from src.storage import get_storages  # noqa: E402
 
 ALERT_STATUSES = (Status.OVERDUE, Status.SOON)
 
+# アプリのURL（メール本文の最後に案内として載せる）
+APP_URL = "https://carmaintenanceapp-52pjmtle42xaqgdbdhxrhx.streamlit.app/"
+
 
 def _item_alert_line(item: maintenance.ItemCheck) -> str:
     """1項目（車検など）を、メール本文用の1行テキストにする。"""
@@ -77,7 +80,9 @@ def build_email_body(alert_checks: list[CarCheck]) -> str:
         "車の情報管理アプリからの自動通知です。\n"
         "以下の車で、期限切れ（🔴）または期限が近い（🟡）項目があります。\n\n"
         + "\n\n".join(blocks)
-        + "\n\n---\nこのメールは GitHub Actions から毎週自動送信されています。"
+        + "\n\n---\n"
+        + f"詳細はこちらから確認してください：\n{APP_URL}\n\n"
+        + "このメールは GitHub Actions から毎週自動送信されています。"
     )
 
 
