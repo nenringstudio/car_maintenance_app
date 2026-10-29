@@ -11,7 +11,8 @@ GitHub Actions から毎週1回自動実行される想定ですが、ターミ�
                               [google] token_json と同じ中身）
   - GMAIL_ADDRESS          … 送信元の Gmail アドレス
   - GMAIL_APP_PASSWORD     … Gmail の「アプリパスワード」（16桁、スペース無し）
-  - ALERT_EMAIL_TO         … 送信先のメールアドレス
+  - ALERT_EMAIL_TO         … 送信先のメールアドレス（複数宛てたいときはカンマ区切り。
+                              例: "a@example.com,b@example.com"）
 
 これらは GitHub Actions 上では GitHub Secrets から渡します
 （.github/workflows/check_expiry.yml を参照）。
@@ -86,20 +87,26 @@ def build_email_body(alert_checks: list[CarCheck]) -> str:
     )
 
 
+def _recipients() -> list[str]:
+    """ALERT_EMAIL_TO をカンマ区切りで複数アドレスに分ける。"""
+    raw = os.environ["ALERT_EMAIL_TO"]
+    return [addr.strip() for addr in raw.split(",") if addr.strip()]
+
+
 def send_email(subject: str, body: str) -> None:
     sender = os.environ["GMAIL_ADDRESS"]
     app_password = os.environ["GMAIL_APP_PASSWORD"]
-    recipient = os.environ["ALERT_EMAIL_TO"]
+    recipients = _recipients()
 
     msg = MIMEText(body)
     msg["Subject"] = subject
     msg["From"] = sender
-    msg["To"] = recipient
+    msg["To"] = ", ".join(recipients)
 
     with smtplib.SMTP("smtp.gmail.com", 587) as server:
         server.starttls()
         server.login(sender, app_password)
-        server.send_message(msg)
+        server.send_message(msg, to_addrs=recipients)
 
 
 def main() -> None:
@@ -123,7 +130,8 @@ def main() -> None:
     body = build_email_body(alert_checks)
 
     send_email(subject, body)
-    print(f"メールを送信しました。対象: {len(alert_checks)}台")
+    print(f"メールを送信しました。宛先: {', '.join(_recipients())}")
+    print(f"対象: {len(alert_checks)}台")
     for cc in alert_checks:
         print(f"  - {maintenance.STATUS_EMOJI[cc.status]} {cc.car.name}")
 

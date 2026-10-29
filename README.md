@@ -194,7 +194,7 @@ New repository secret** から、以下の5つを1つずつ登録してくださ
 | `CAR_APP_TOKEN_JSON` | Google へのログイン情報。`.streamlit/secrets.cloud.toml` の `[google]` セクションにある `token_json` の中身（`'''...'''` の中の `{...}` 部分）をそのまま貼り付け |
 | `GMAIL_ADDRESS` | メールの送信元にする Gmail アドレス（例: `your.name@gmail.com`） |
 | `GMAIL_APP_PASSWORD` | 上で取得した16桁のアプリパスワード（スペースは入れない） |
-| `ALERT_EMAIL_TO` | メールを受け取りたいアドレス（送信元と同じでもOK） |
+| `ALERT_EMAIL_TO` | メールを受け取りたいアドレス（送信元と同じでもOK）。複数人に送りたいときはカンマ区切りで並べる（例: `a@example.com,b@example.com`） |
 
 `CAR_APP_TOKEN_JSON` がまだ手元に無い場合（Streamlit Cloud へのデプロイをまだしていない場合）は、
 先に「Google スプレッドシート連携のセットアップ」の手順3（`python scripts/authorize_google.py`）を
