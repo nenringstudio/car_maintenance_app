@@ -1,10 +1,10 @@
 """家族用 車の情報管理アプリ
 
   ・車の情報を「登録」して「一覧表示」する
-  ・車検 / 自動車税 / 自賠責保険 / 任意保険 / オイル交換 / タイヤ交換
-    の期限が近い車を色分けで表示する
+  ・車検 / 自動車税 / 自賠責保険 / 任意保険 / オイル交換 / 走行距離更新
+    の期限が近い車を色分けで表示する（タイヤ交換は管理項目から除外）
   ・オイル交換 / タイヤ交換 / 車検 / その他の整備記録を、車ごとに履歴として残す
-（メール送信は次のステップで追加します）
+    （記録自体は引き続き残せます。判定・表示に使うのはオイル交換のみ）
 
 起動方法（ターミナルで）:
     streamlit run app.py
@@ -27,27 +27,14 @@ def _show(value: date | None) -> str:
 
 
 def _item_line(item: maintenance.ItemCheck) -> str:
-    """1項目（車検など）を、色つきの1行テキストにする。"""
+    """1項目（車検など）を、色つきの1行テキストにする。
+
+    詳しい文章の組み立ては src/maintenance.py の item_detail_text() に
+    まとめてあり、メール通知（scripts/send_expiry_alerts.py）と共用しています。
+    """
     emoji = maintenance.STATUS_EMOJI[item.status]
     color = maintenance.STATUS_COLOR[item.status]
-
-    if item.status == Status.UNKNOWN:
-        return f"{emoji} **{item.name}**：:gray[未設定]"
-
-    parts = []
-    if item.due_date is not None:
-        when = item.due_date.strftime("%Y/%m/%d")
-        suffix = "・目安" if item.is_estimate else ""
-        if item.days_left is not None and item.days_left < 0:
-            parts.append(f"{when}{suffix} を {abs(item.days_left)}日 超過")
-        else:
-            parts.append(f"あと {item.days_left}日（{when}{suffix}）")
-    if item.distance_left_km is not None:
-        if item.distance_left_km < 0:
-            parts.append(f"{abs(item.distance_left_km):,}km 超過")
-        else:
-            parts.append(f"あと {item.distance_left_km:,}km")
-    detail = "　／　".join(parts)
+    detail = maintenance.item_detail_text(item)
     return f"{emoji} **{item.name}**：:{color}[{detail}]"
 
 
@@ -180,8 +167,10 @@ else:
                     "自動車税": _show(cc.item("自動車税").due_date),
                     "自賠責保険": _show(cc.item("自賠責保険").due_date),
                     "任意保険": _show(cc.item("任意保険").due_date),
-                    "次回オイル目安": _show(cc.item("オイル交換").due_date),
-                    "次回タイヤ目安": _show(cc.item("タイヤ交換").due_date),
+                    "次回オイル目安": maintenance.item_compact_text(cc.item("オイル交換")),
+                    "走行距離更新": maintenance.item_compact_text(
+                        cc.item("走行距離更新")
+                    ),
                 }
                 for cc in filtered
             ],
@@ -201,11 +190,13 @@ else:
             confirming_delete = st.session_state.get(
                 f"confirm_delete_car_{c.id}", False
             )
+            pending_odometer = st.session_state.get(f"pending_odometer_{c.id}")
 
             with st.expander(
                 title,
                 expanded=editing
                 or is_focused
+                or pending_odometer is not None
                 or confirming_delete
                 or cc.status in (Status.OVERDUE, Status.SOON),
             ):
@@ -215,7 +206,7 @@ else:
                     # ---- 編集フォーム（登録時と同じ項目に、今の内容を入れた状態）----
                     with st.form(f"edit-car-{c.id}"):
                         st.caption(
-                            "オイル/タイヤ交換は下の「整備記録」から、"
+                            "オイル交換は下の「整備記録」から、"
                             "自動車税は自動計算のため、ここでは編集しません。"
                         )
                         edit_name = st.text_input(
@@ -324,10 +315,11 @@ else:
                     for item in cc.items:
                         st.markdown(_item_line(item))
                     st.caption(
-                        "オイル/タイヤの「次回目安」は、整備記録の中で一番新しい日付"
-                        "＋推奨間隔で計算しています。自動車税は「毎年5月」を目安に自動計算です"
-                        "（間隔や月日は src/config.py で変更できます）。"
-                        "オイル交換は、月数と走行距離のどちらか早く来た方で判定します。"
+                        "車検・自賠責保険・任意保険は、期限の2か月前から黄色になります。"
+                        "自動車税は「毎年5月」を目安に自動計算です。"
+                        "オイル交換は、前回交換からの走行距離（9,000kmで黄色・10,000kmで赤）"
+                        "で判定します。走行距離が2か月以上更新されていないと「走行距離更新」"
+                        "が黄色になります（しきい値は src/config.py で変更できます）。"
                     )
 
                     # ---- 納車日からの経過期間 / 納車後の総走行距離 ----
@@ -355,28 +347,78 @@ else:
                     if c.current_odometer_km is not None
                     else "未設定"
                 )
-                st.caption(f"現在の総走行距離: {odometer_text}")
-                with st.form(f"update-odometer-{c.id}", clear_on_submit=False):
-                    new_odometer = st.number_input(
-                        "現在の総走行距離（km）",
-                        min_value=0,
-                        step=100,
-                        value=c.current_odometer_km,
+                updated_text = (
+                    f"（最終更新: {c.odometer_updated_date.strftime('%Y/%m/%d')}）"
+                    if c.odometer_updated_date is not None
+                    else ""
+                )
+                st.caption(f"現在の総走行距離: {odometer_text}{updated_text}")
+
+                if pending_odometer is not None:
+                    # 前回より小さい値が入力された -> 入力ミスの可能性を確認する
+                    st.warning(
+                        f"前回の記録（{c.current_odometer_km:,}km）より小さい値です"
+                        f"（新しい値: {pending_odometer:,}km）。入力ミスではありませんか？"
                     )
-                    odometer_submitted = st.form_submit_button(
-                        "更新する", width="stretch"
-                    )
-                    if odometer_submitted:
-                        c.current_odometer_km = (
-                            int(new_odometer) if new_odometer is not None else None
+                    odo_confirm_col, odo_cancel_col = st.columns(2)
+                    with odo_confirm_col:
+                        if st.button(
+                            "はい、更新する",
+                            key=f"confirm-odometer-{c.id}",
+                            width="stretch",
+                        ):
+                            c.current_odometer_km = pending_odometer
+                            c.odometer_updated_date = date.today()
+                            try:
+                                storage.update_car(c)
+                            except Exception as e:
+                                st.error(f"更新に失敗しました。\n\n{e}")
+                                st.stop()
+                            st.session_state[f"pending_odometer_{c.id}"] = None
+                            st.success("走行距離を更新しました。")
+                            st.rerun()
+                    with odo_cancel_col:
+                        if st.button(
+                            "キャンセル",
+                            key=f"cancel-odometer-{c.id}",
+                            width="stretch",
+                        ):
+                            st.session_state[f"pending_odometer_{c.id}"] = None
+                            st.rerun()
+                else:
+                    with st.form(f"update-odometer-{c.id}", clear_on_submit=False):
+                        new_odometer = st.number_input(
+                            "現在の総走行距離（km）",
+                            min_value=0,
+                            step=100,
+                            value=c.current_odometer_km,
                         )
-                        try:
-                            storage.update_car(c)
-                        except Exception as e:
-                            st.error(f"更新に失敗しました。\n\n{e}")
-                            st.stop()
-                        st.success("走行距離を更新しました。")
-                        st.rerun()
+                        odometer_submitted = st.form_submit_button(
+                            "更新する", width="stretch"
+                        )
+                        if odometer_submitted:
+                            new_val = (
+                                int(new_odometer) if new_odometer is not None else None
+                            )
+                            if (
+                                new_val is not None
+                                and c.current_odometer_km is not None
+                                and new_val < c.current_odometer_km
+                            ):
+                                st.session_state[f"pending_odometer_{c.id}"] = new_val
+                                st.rerun()
+                            else:
+                                c.current_odometer_km = new_val
+                                c.odometer_updated_date = (
+                                    date.today() if new_val is not None else None
+                                )
+                                try:
+                                    storage.update_car(c)
+                                except Exception as e:
+                                    st.error(f"更新に失敗しました。\n\n{e}")
+                                    st.stop()
+                                st.success("走行距離を更新しました。")
+                                st.rerun()
 
                 # ---- 整備履歴（新しい順） ----
                 st.markdown("**整備履歴**")
@@ -403,7 +445,10 @@ else:
 
                 # ---- 整備記録を追加するフォーム ----
                 with st.form(f"add-record-{c.id}", clear_on_submit=True):
-                    st.caption("整備記録を追加する")
+                    st.caption(
+                        "整備記録を追加する"
+                        "（オイル交換は走行距離も入れると、距離での判定に使われます）"
+                    )
                     rec_col1, rec_col2 = st.columns(2)
                     with rec_col1:
                         record_date = st.date_input(
@@ -538,15 +583,18 @@ with st.form("add-car-form", clear_on_submit=True):
             "納車時の走行距離（km・任意）", min_value=0, step=100, value=None
         )
 
-    st.caption("直近の交換日が分かれば、整備履歴の1件目として登録されます（任意）。")
-    col1, col2 = st.columns(2)
-    with col1:
+    st.caption(
+        "直近のオイル交換日・走行距離が分かれば、整備履歴の1件目として登録されます"
+        "（任意。走行距離だけ入力した場合は今日の日付で記録されます）。"
+    )
+    oil_col1, oil_col2 = st.columns(2)
+    with oil_col1:
         last_oil_change_date = st.date_input(
             "直近のオイル交換日", value=None, format="YYYY/MM/DD"
         )
-    with col2:
-        last_tire_change_date = st.date_input(
-            "直近のタイヤ交換日", value=None, format="YYYY/MM/DD"
+    with oil_col2:
+        last_oil_odometer_km = st.number_input(
+            "直近のオイル交換時の走行距離（km）", min_value=0, step=100, value=None
         )
 
     submitted = st.form_submit_button("追加する", width="stretch")
@@ -555,6 +603,9 @@ with st.form("add-car-form", clear_on_submit=True):
         if not name.strip():
             st.error("「車の名前」は必須です。")
         else:
+            new_current_odometer_km = (
+                int(current_odometer_km) if current_odometer_km is not None else None
+            )
             new_car = Car(
                 name=name.strip(),
                 owner="" if owner == "（未設定）" else owner,
@@ -562,8 +613,9 @@ with st.form("add-car-form", clear_on_submit=True):
                 inspection_due_date=inspection_due_date,
                 compulsory_insurance_due_date=compulsory_insurance_due_date,
                 voluntary_insurance_due_date=voluntary_insurance_due_date,
-                current_odometer_km=(
-                    int(current_odometer_km) if current_odometer_km is not None else None
+                current_odometer_km=new_current_odometer_km,
+                odometer_updated_date=(
+                    date.today() if new_current_odometer_km is not None else None
                 ),
                 delivery_date=delivery_date,
                 delivery_odometer_km=(
@@ -574,20 +626,17 @@ with st.form("add-car-form", clear_on_submit=True):
             )
             try:
                 storage.add_car(new_car)
-                if last_oil_change_date:
+                if last_oil_change_date or last_oil_odometer_km is not None:
                     record_storage.add_record(
                         MaintenanceRecord(
                             car_id=new_car.id,
-                            date=last_oil_change_date,
+                            date=last_oil_change_date or date.today(),
                             record_type=RecordType.OIL,
-                        )
-                    )
-                if last_tire_change_date:
-                    record_storage.add_record(
-                        MaintenanceRecord(
-                            car_id=new_car.id,
-                            date=last_tire_change_date,
-                            record_type=RecordType.TIRE,
+                            odometer_km=(
+                                int(last_oil_odometer_km)
+                                if last_oil_odometer_km is not None
+                                else None
+                            ),
                         )
                     )
             except Exception as e:

@@ -40,22 +40,13 @@ APP_URL = "https://carmaintenanceapp-52pjmtle42xaqgdbdhxrhx.streamlit.app/"
 
 
 def _item_alert_line(item: maintenance.ItemCheck) -> str:
-    """1項目（車検など）を、メール本文用の1行テキストにする。"""
+    """1項目（車検など）を、メール本文用の1行テキストにする。
+
+    詳しい文章の組み立ては src/maintenance.py の item_detail_text() に
+    まとめてあり、アプリ画面（app.py）と共用しています。
+    """
     emoji = maintenance.STATUS_EMOJI[item.status]
-    parts = []
-    if item.due_date is not None:
-        when = item.due_date.strftime("%Y/%m/%d")
-        suffix = "・目安" if item.is_estimate else ""
-        if item.days_left is not None and item.days_left < 0:
-            parts.append(f"{when}{suffix} を {abs(item.days_left)}日 超過")
-        else:
-            parts.append(f"あと {item.days_left}日（{when}{suffix}）")
-    if item.distance_left_km is not None:
-        if item.distance_left_km < 0:
-            parts.append(f"{abs(item.distance_left_km):,}km 超過")
-        else:
-            parts.append(f"あと {item.distance_left_km:,}km")
-    detail = "／".join(parts) if parts else "要確認"
+    detail = maintenance.item_detail_text(item)
     return f"　{emoji} {item.name}：{detail}"
 
 

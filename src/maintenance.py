@@ -56,16 +56,20 @@ _STATUS_ORDER = {
 
 @dataclass
 class ItemCheck:
-    """1項目（車検 / オイル交換 / タイヤ交換 など）の判定結果。"""
+    """1項目（車検 / オイル交換 など）の判定結果。"""
 
     name: str                 # "車検" など
     due_date: date | None     # 期限（次回の目安日）。日数で判定する項目のみ
     days_left: int | None     # 残り日数。マイナスなら超過日数
     status: Status
-    is_estimate: bool = False  # True なら「前回＋間隔」で計算した目安
+    is_estimate: bool = False  # True なら自動計算した目安
     distance_left_km: int | None = None
     # ↑ 距離でも判定する項目（オイル交換）だけ使う。
     #   プラスなら次の節目まであと何km、マイナスなら超過km。
+    distance_traveled_km: int | None = None
+    # ↑ オイル交換だけ使う。前回の記録からの走行距離（プラスのみ）。
+    note: str | None = None
+    # ↑ 日付・距離だけでは説明しきれない項目（走行距離の更新リマインドなど）の補足文。
 
 
 @dataclass
@@ -122,9 +126,24 @@ def _judge(name, due_date, warn_days, today, *, is_estimate=False) -> ItemCheck:
     return ItemCheck(name, due_date, days_left, status, is_estimate)
 
 
-def _worse_status(a: Status, b: Status) -> Status:
-    """2つの状態のうち、より緊急な方（悪い方）を返す。"""
-    return min(a, b, key=lambda s: _STATUS_ORDER[s])
+def _judge_months_before(
+    name, due_date, warn_months, today, *, is_estimate=False
+) -> ItemCheck:
+    """期限の「○か月前」から黄色にする判定（車検・保険）。
+
+    期限そのものを過ぎたら赤。days_left はこれまで通り「期限まであと何日か」。
+    """
+    if due_date is None:
+        return ItemCheck(name, None, None, Status.UNKNOWN, is_estimate)
+    days_left = (due_date - today).days
+    warn_start = add_months(due_date, -warn_months)
+    if days_left < 0:
+        status = Status.OVERDUE
+    elif today >= warn_start:
+        status = Status.SOON
+    else:
+        status = Status.OK
+    return ItemCheck(name, due_date, days_left, status, is_estimate)
 
 
 def _latest_record(
@@ -137,22 +156,47 @@ def _latest_record(
 
 def _judge_km(
     current_km: int | None, last_km: int | None, warn_km: int, overdue_km: int
-) -> tuple[Status, int | None]:
-    """距離基準の判定（例: オイル交換）。
+) -> tuple[Status, int | None, int | None]:
+    """距離基準の判定（オイル交換）。
 
-    前回からの走行距離が warn_km を超えたら黄色、overdue_km を超えたら赤。
+    前回からの走行距離が warn_km 以上で黄色、overdue_km 以上で赤。
     現在の走行距離・前回の走行距離のどちらかが未入力なら判定できない（未設定扱い）。
-    戻り値の2つめは「次の節目まであと何km」（マイナスなら超過km）。
+    戻り値: (状態, 次の節目まであと何km（マイナスなら超過km）, 前回からの走行距離)
     """
     if current_km is None or last_km is None:
-        return Status.UNKNOWN, None
+        return Status.UNKNOWN, None, None
     traveled = current_km - last_km
-    if traveled > overdue_km:
-        return Status.OVERDUE, overdue_km - traveled
-    elif traveled > warn_km:
-        return Status.SOON, overdue_km - traveled
+    if traveled >= overdue_km:
+        return Status.OVERDUE, overdue_km - traveled, traveled
+    elif traveled >= warn_km:
+        return Status.SOON, overdue_km - traveled, traveled
     else:
-        return Status.OK, warn_km - traveled
+        return Status.OK, warn_km - traveled, traveled
+
+
+def _judge_odometer_reminder(
+    current_km: int | None,
+    updated_date: date | None,
+    today: date,
+    warn_months: int,
+) -> ItemCheck:
+    """「走行距離を最近更新したか」の判定。
+
+    走行距離が未入力なら⚪（対象外）。
+    走行距離はあるのに更新日の記録が無い（古いデータなど）場合はすぐ🟡。
+    更新日から warn_months か月経っていたら🟡。それ以外は🟢（赤にはならない）。
+    """
+    name = "走行距離更新"
+    if current_km is None:
+        return ItemCheck(name, None, None, Status.UNKNOWN)
+    if updated_date is None:
+        return ItemCheck(
+            name, None, None, Status.SOON, note="更新日が記録されていません"
+        )
+    due = add_months(updated_date, warn_months)
+    days_left = (due - today).days
+    status = Status.OK if days_left > 0 else Status.SOON
+    return ItemCheck(name, due, days_left, status, is_estimate=True)
 
 
 def next_annual_due(today: date, month: int, day: int) -> date:
@@ -177,12 +221,13 @@ def check_car(
     today = today or date.today()
     car_records = [r for r in records if r.car_id == car.id]
 
-    # 車検: 記録された期限日をそのまま使う（履歴とは別に、車ごとに直接持つ値）
-    inspection = _judge(
-        "車検", car.inspection_due_date, config.INSPECTION_WARN_DAYS, today
+    # 車検: 記録された期限日をそのまま使う（履歴とは別に、車ごとに直接持つ値）。
+    # 期限の INSPECTION_WARN_MONTHS か月前から黄色。
+    inspection = _judge_months_before(
+        "車検", car.inspection_due_date, config.INSPECTION_WARN_MONTHS, today
     )
 
-    # 自動車税: 車ごとの日付は持たず、「次に来る○月○日」を自動計算する
+    # 自動車税: 車ごとの日付は持たず、「次に来る○月○日」を自動計算する（これまで通り日数判定）
     tax_due = next_annual_due(
         today, config.VEHICLE_TAX_DUE_MONTH, config.VEHICLE_TAX_DUE_DAY
     )
@@ -190,58 +235,51 @@ def check_car(
         "自動車税", tax_due, config.VEHICLE_TAX_WARN_DAYS, today, is_estimate=True
     )
 
-    # 自賠責保険 / 任意保険: 車検と同じく、満期日をそのまま使う
-    compulsory_insurance = _judge(
+    # 自賠責保険 / 任意保険: 車検と同じく、満期日をそのまま使う。
+    # 期限の何か月前から黄色にするかは、それぞれ別の設定値。
+    compulsory_insurance = _judge_months_before(
         "自賠責保険",
         car.compulsory_insurance_due_date,
-        config.COMPULSORY_INSURANCE_WARN_DAYS,
+        config.COMPULSORY_INSURANCE_WARN_MONTHS,
         today,
     )
-    voluntary_insurance = _judge(
+    voluntary_insurance = _judge_months_before(
         "任意保険",
         car.voluntary_insurance_due_date,
-        config.VOLUNTARY_INSURANCE_WARN_DAYS,
+        config.VOLUNTARY_INSURANCE_WARN_MONTHS,
         today,
     )
 
-    # オイル交換: 月数 と 距離 の両方で判定し、早く来た方（悪い方）を採用する
+    # オイル交換: 距離のみで判定する（月数での判定は廃止）。
+    # 「現在の総走行距離」と「一番新しいオイル交換記録の走行距離」の差を使う。
     last_oil_record = _latest_record(car_records, RecordType.OIL)
-    last_oil_date = last_oil_record.date if last_oil_record else None
-    oil_due = (
-        add_months(last_oil_date, config.OIL_CHANGE_INTERVAL_MONTHS)
-        if last_oil_date
-        else None
-    )
-    oil_by_date = _judge(
-        "オイル交換", oil_due, config.OIL_CHANGE_WARN_DAYS, today, is_estimate=True
-    )
-
     last_oil_km = last_oil_record.odometer_km if last_oil_record else None
-    oil_km_status, oil_distance_left_km = _judge_km(
+    oil_status, oil_distance_left_km, oil_distance_traveled_km = _judge_km(
         car.current_odometer_km,
         last_oil_km,
         config.OIL_CHANGE_WARN_KM,
         config.OIL_CHANGE_OVERDUE_KM,
     )
-
     oil = ItemCheck(
         name="オイル交換",
-        due_date=oil_by_date.due_date,
-        days_left=oil_by_date.days_left,
-        status=_worse_status(oil_by_date.status, oil_km_status),
+        due_date=None,
+        days_left=None,
+        status=oil_status,
         is_estimate=True,
         distance_left_km=oil_distance_left_km,
+        distance_traveled_km=oil_distance_traveled_km,
     )
 
-    # タイヤ交換: オイルと同じく、記録の中で一番新しい日付 ＋ 推奨間隔（距離での判定はなし）
-    last_tire_record = _latest_record(car_records, RecordType.TIRE)
-    last_tire = last_tire_record.date if last_tire_record else None
-    tire_due = (
-        add_months(last_tire, config.TIRE_CHANGE_INTERVAL_MONTHS) if last_tire else None
+    # 走行距離の更新リマインド: 最後に更新してから何か月経ったか。
+    odometer_reminder = _judge_odometer_reminder(
+        car.current_odometer_km,
+        car.odometer_updated_date,
+        today,
+        config.ODOMETER_UPDATE_REMINDER_MONTHS,
     )
-    tire = _judge(
-        "タイヤ交換", tire_due, config.TIRE_CHANGE_WARN_DAYS, today, is_estimate=True
-    )
+
+    # タイヤ交換は管理項目から外したため、判定・一覧には含めない
+    # （整備記録としてのデータは引き続き残り、履歴一覧には表示されます）。
 
     return CarCheck(
         car=car,
@@ -251,7 +289,7 @@ def check_car(
             compulsory_insurance,
             voluntary_insurance,
             oil,
-            tire,
+            odometer_reminder,
         ],
     )
 
@@ -264,3 +302,61 @@ def check_all(
     checks = [check_car(c, records, today) for c in cars]
     checks.sort(key=lambda cc: cc.sort_key)
     return checks
+
+
+# =====================================================================
+# 画面・メールで共通に使う、項目の文章化（🔴🟡🟢⚪の付け方と同じく共通化しておくと
+# app.py / pages/1_マトリックス表.py / scripts/send_expiry_alerts.py の3つで
+# 表示内容がズレない）
+# =====================================================================
+
+
+def item_detail_text(item: ItemCheck) -> str:
+    """1項目分の詳しい説明文（絵文字・色は付けない）。カード・メールで使う。"""
+    if item.status == Status.UNKNOWN:
+        return "未設定"
+
+    parts: list[str] = []
+    if item.due_date is not None:
+        when = item.due_date.strftime("%Y/%m/%d")
+        suffix = "・目安" if item.is_estimate else ""
+        if item.days_left is not None and item.days_left < 0:
+            parts.append(f"{when}{suffix} を {abs(item.days_left)}日 超過")
+        else:
+            parts.append(f"あと {item.days_left}日（{when}{suffix}）")
+    if item.distance_traveled_km is not None and item.distance_left_km is not None:
+        traveled = item.distance_traveled_km
+        remaining = item.distance_left_km
+        if item.status == Status.OVERDUE:
+            parts.append(f"前回交換から{traveled:,}km（交換目安を{abs(remaining):,}km超過）")
+        else:
+            parts.append(f"前回交換から{traveled:,}km（あと{remaining:,}kmで交換目安）")
+    elif item.distance_left_km is not None:
+        if item.distance_left_km < 0:
+            parts.append(f"{abs(item.distance_left_km):,}km 超過")
+        else:
+            parts.append(f"あと {item.distance_left_km:,}km")
+    if item.note:
+        parts.append(item.note)
+    return "　／　".join(parts) if parts else "要確認"
+
+
+def item_compact_text(item: ItemCheck) -> str:
+    """1項目分の、短く詰めた説明文。マトリックス表・一覧表で使う。"""
+    if item.status == Status.UNKNOWN:
+        return "未設定"
+
+    parts: list[str] = []
+    if item.days_left is not None:
+        if item.days_left < 0:
+            parts.append(f"{abs(item.days_left)}日超過")
+        else:
+            parts.append(f"あと{item.days_left}日")
+    if item.distance_left_km is not None:
+        if item.status == Status.OVERDUE:
+            parts.append(f"{abs(item.distance_left_km):,}km超過")
+        else:
+            parts.append(f"あと{item.distance_left_km:,}km")
+    if item.note:
+        parts.append(item.note)
+    return " / ".join(parts) if parts else "-"

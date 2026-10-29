@@ -11,30 +11,10 @@ from __future__ import annotations
 import streamlit as st
 
 from src import config, maintenance
-from src.maintenance import Status
 from src.storage import get_storages
 
-# 縦の行（項目）の並び順
-ROW_NAMES = ["車検", "オイル交換", "タイヤ交換", "自動車税", "自賠責保険", "任意保険"]
-
-
-def _cell_caption(item: maintenance.ItemCheck) -> str:
-    """セルの下段に出す小さめの文字（期限までの日数・距離）。"""
-    if item.status == Status.UNKNOWN:
-        return "未設定"
-
-    parts = []
-    if item.days_left is not None:
-        if item.days_left < 0:
-            parts.append(f"{abs(item.days_left)}日超過")
-        else:
-            parts.append(f"あと{item.days_left}日")
-    if item.distance_left_km is not None:
-        if item.distance_left_km < 0:
-            parts.append(f"{abs(item.distance_left_km):,}km超過")
-        else:
-            parts.append(f"あと{item.distance_left_km:,}km")
-    return " / ".join(parts) if parts else "-"
+# 縦の行（項目）の並び順（タイヤ交換は管理項目から除外）
+ROW_NAMES = ["車検", "オイル交換", "自動車税", "自賠責保険", "任意保険", "走行距離更新"]
 
 
 # ---- 画面全体の設定（横に長い表なので wide レイアウト）----
@@ -142,4 +122,4 @@ with st.container(key="matrix_scroll"):
             item = cc.item(row_name)
             with col:
                 st.markdown(f"### {maintenance.STATUS_EMOJI[item.status]}")
-                st.caption(_cell_caption(item))
+                st.caption(maintenance.item_compact_text(item))

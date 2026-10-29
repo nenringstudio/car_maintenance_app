@@ -35,6 +35,7 @@ FIELDNAMES = [
     "current_odometer_km",                 # 現在の総走行距離（km）
     "delivery_date",                       # 納車日
     "delivery_odometer_km",                # 納車時の走行距離（km）
+    "odometer_updated_date",               # 走行距離の最終更新日
 ]
 
 
@@ -51,6 +52,7 @@ class Car:
     current_odometer_km: int | None = None              # 現在の総走行距離（km）
     delivery_date: date | None = None                   # 納車日
     delivery_odometer_km: int | None = None             # 納車時の走行距離（km）
+    odometer_updated_date: date | None = None           # 走行距離の最終更新日
     # id は指定しなければ自動でユニークな文字列が入ります
     id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
@@ -79,6 +81,7 @@ class Car:
             "delivery_odometer_km": (
                 "" if self.delivery_odometer_km is None else str(self.delivery_odometer_km)
             ),
+            "odometer_updated_date": _date_to_str(self.odometer_updated_date),
         }
 
     @classmethod
@@ -103,6 +106,7 @@ class Car:
             current_odometer_km=_str_to_optional_int(row.get("current_odometer_km")),
             delivery_date=_str_to_date(row.get("delivery_date")),
             delivery_odometer_km=_str_to_optional_int(row.get("delivery_odometer_km")),
+            odometer_updated_date=_str_to_date(row.get("odometer_updated_date")),
         )
 
 
