@@ -187,9 +187,6 @@ else:
                 title += f"（担当: {c.owner}）"
             editing = st.session_state.get(f"editing_car_{c.id}", False)
             is_focused = c.id == focus_car_id
-            confirming_delete = st.session_state.get(
-                f"confirm_delete_car_{c.id}", False
-            )
             pending_odometer = st.session_state.get(f"pending_odometer_{c.id}")
 
             with st.expander(
@@ -197,7 +194,6 @@ else:
                 expanded=editing
                 or is_focused
                 or pending_odometer is not None
-                or confirming_delete
                 or cc.status in (Status.OVERDUE, Status.SOON),
             ):
                 if is_focused:
@@ -496,50 +492,14 @@ else:
                         st.rerun()
 
                 if not editing:
-                    if confirming_delete:
-                        st.warning(
-                            f"「{c.name}」を削除します。整備記録もすべて削除され、"
-                            "元に戻せません。本当に削除しますか？"
-                        )
-                        confirm_col, cancel_col = st.columns(2)
-                        with confirm_col:
-                            if st.button(
-                                "はい、削除する",
-                                key=f"confirm-delete-{c.id}",
-                                width="stretch",
-                            ):
-                                try:
-                                    storage.delete_car(c.id)
-                                    record_storage.delete_records_for_car(c.id)
-                                except Exception as e:
-                                    st.error(f"削除に失敗しました。\n\n{e}")
-                                    st.stop()
-                                st.session_state[f"confirm_delete_car_{c.id}"] = False
-                                st.rerun()
-                        with cancel_col:
-                            if st.button(
-                                "キャンセル",
-                                key=f"cancel-delete-{c.id}",
-                                width="stretch",
-                            ):
-                                st.session_state[f"confirm_delete_car_{c.id}"] = False
-                                st.rerun()
-                    else:
-                        edit_btn_col, delete_btn_col = st.columns(2)
-                        with edit_btn_col:
-                            if st.button(
-                                "編集する", key=f"edit-{c.id}", width="stretch"
-                            ):
-                                st.session_state[f"editing_car_{c.id}"] = True
-                                st.rerun()
-                        with delete_btn_col:
-                            if st.button(
-                                "この車を削除する",
-                                key=f"delete-{c.id}",
-                                width="stretch",
-                            ):
-                                st.session_state[f"confirm_delete_car_{c.id}"] = True
-                                st.rerun()
+                    # 削除ボタンはアプリ画面からは非表示にしている（ユーザー指示）。
+                    # 削除したい場合はスプレッドシートの行を直接編集してもらう運用。
+                    # storage.delete_car() / record_storage.delete_records_for_car()
+                    # 自体は storage 層に残したままなので、将来また画面から呼び出す
+                    # ことも可能。
+                    if st.button("編集する", key=f"edit-{c.id}", width="stretch"):
+                        st.session_state[f"editing_car_{c.id}"] = True
+                        st.rerun()
 
 
 # =====================================================================
