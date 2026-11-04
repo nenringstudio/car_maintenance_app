@@ -156,4 +156,4 @@ VOLUNTARY_INSURANCE_WARN_MONTHS = 2
 # --- 走行距離の更新リマインド ---
 # 「現在の総走行距離」を最後に更新してから何か月経ったら、
 # 更新を促す黄色（🟡）にするか。走行距離が未入力の車は対象外（⚪）。
-ODOMETER_UPDATE_REMINDER_MONTHS = 2
+ODOMETER_UPDATE_REMINDER_MONTHS = 4
