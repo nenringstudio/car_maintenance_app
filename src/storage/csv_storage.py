@@ -10,8 +10,15 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from src.models import FIELDNAMES, RECORD_FIELDNAMES, Car, MaintenanceRecord
-from src.storage.base import CarStorage, MaintenanceRecordStorage
+from src.models import (
+    ANNUAL_COST_FIELDNAMES,
+    FIELDNAMES,
+    RECORD_FIELDNAMES,
+    AnnualCost,
+    Car,
+    MaintenanceRecord,
+)
+from src.storage.base import AnnualCostStorage, CarStorage, MaintenanceRecordStorage
 from src.storage.legacy import migrate_legacy_rows_to_records
 
 
@@ -150,4 +157,53 @@ class CsvMaintenanceRecordStorage(MaintenanceRecordStorage):
 
     def delete_records_for_car(self, car_id: str) -> None:
         records = [r for r in self._read_all() if r.car_id != car_id]
+        self._write_all(records)
+
+
+class CsvAnnualCostStorage(AnnualCostStorage):
+    def __init__(self, csv_path: str | Path) -> None:
+        self.csv_path = Path(csv_path)
+        self.csv_path.parent.mkdir(parents=True, exist_ok=True)
+        if not self.csv_path.exists():
+            self._write_all([])
+        else:
+            self._migrate_header_if_needed()
+
+    def _migrate_header_if_needed(self) -> None:
+        """見出し行（1行目）が今の形と違っていたら、自動で書き直す。"""
+        with self.csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            header = next(csv.reader(f), [])
+        if header != ANNUAL_COST_FIELDNAMES:
+            self._write_all(self._read_all())
+
+    # ---- ここから下は「まとめて読み書き」する内部処理 ----
+
+    def _read_all(self) -> list[AnnualCost]:
+        with self.csv_path.open("r", encoding="utf-8-sig", newline="") as f:
+            reader = csv.DictReader(f)
+            return [AnnualCost.from_row(row) for row in reader]
+
+    def _write_all(self, records: list[AnnualCost]) -> None:
+        with self.csv_path.open("w", encoding="utf-8-sig", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=ANNUAL_COST_FIELDNAMES)
+            writer.writeheader()
+            for record in records:
+                writer.writerow(record.to_row())
+
+    # ---- ここから下が共通ルール（AnnualCostStorage）で決めたメソッド ----
+
+    def list_annual_costs(self, car_id: str | None = None) -> list[AnnualCost]:
+        records = self._read_all()
+        if car_id is not None:
+            records = [r for r in records if r.car_id == car_id]
+        return records
+
+    def upsert_annual_cost(self, record: AnnualCost) -> None:
+        records = self._read_all()
+        for i, existing in enumerate(records):
+            if existing.car_id == record.car_id and existing.year == record.year:
+                records[i] = record
+                self._write_all(records)
+                return
+        records.append(record)
         self._write_all(records)

@@ -59,6 +59,11 @@ RECORDS_CSV_PATH = Path(
     _setting("records_csv_path", str(BASE_DIR / "data" / "maintenance_records.csv"))
 )
 
+# 年間費用（税金・保険料）を CSV で保存するときのファイルの場所
+ANNUAL_COSTS_CSV_PATH = Path(
+    _setting("annual_costs_csv_path", str(BASE_DIR / "data" / "annual_costs.csv"))
+)
+
 
 # =====================================================================
 # Google スプレッドシート連携の設定（DATA_BACKEND = "gsheets" のとき使用）
@@ -80,6 +85,9 @@ WORKSHEET_NAME = _setting("worksheet_name", "cars")
 
 # 整備記録（履歴）用のシート（タブ）の名前。無ければアプリが自動で作ります。
 RECORDS_WORKSHEET_NAME = _setting("records_worksheet_name", "maintenance_records")
+
+# 年間費用（税金・保険料）用のシート（タブ）の名前。無ければアプリが自動で作ります。
+ANNUAL_COSTS_WORKSHEET_NAME = _setting("annual_costs_worksheet_name", "年間費用")
 
 
 def _client_secret_path() -> Path:

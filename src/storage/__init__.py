@@ -5,9 +5,13 @@ app.py からは get_storages() を呼ぶだけ。
 """
 from __future__ import annotations
 
-from src.config import CSV_PATH, DATA_BACKEND, RECORDS_CSV_PATH
-from src.storage.base import CarStorage, MaintenanceRecordStorage
-from src.storage.csv_storage import CsvCarStorage, CsvMaintenanceRecordStorage
+from src.config import ANNUAL_COSTS_CSV_PATH, CSV_PATH, DATA_BACKEND, RECORDS_CSV_PATH
+from src.storage.base import AnnualCostStorage, CarStorage, MaintenanceRecordStorage
+from src.storage.csv_storage import (
+    CsvAnnualCostStorage,
+    CsvCarStorage,
+    CsvMaintenanceRecordStorage,
+)
 
 
 def get_record_storage() -> MaintenanceRecordStorage:
@@ -55,10 +59,31 @@ def get_storages() -> tuple[CarStorage, MaintenanceRecordStorage]:
     return car_storage, record_storage
 
 
+def get_annual_cost_storage() -> AnnualCostStorage:
+    """年間費用（税金・保険料）の保存先を返す。
+
+    期限チェック（get_storages）とは完全に独立しており、呼ばなければ
+    一切影響しない（pages/2_費用管理.py からのみ使う）。
+    """
+    if DATA_BACKEND == "csv":
+        return CsvAnnualCostStorage(ANNUAL_COSTS_CSV_PATH)
+
+    if DATA_BACKEND == "gsheets":
+        from src.storage.gsheets_storage import GoogleSheetsAnnualCostStorage
+
+        return GoogleSheetsAnnualCostStorage()
+
+    raise ValueError(
+        f"未対応の保存先です: {DATA_BACKEND!r}（'csv' か 'gsheets' を指定してください）"
+    )
+
+
 __all__ = [
+    "AnnualCostStorage",
     "CarStorage",
     "MaintenanceRecordStorage",
     "get_storage",
     "get_record_storage",
     "get_storages",
+    "get_annual_cost_storage",
 ]

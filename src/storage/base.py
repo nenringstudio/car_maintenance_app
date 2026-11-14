@@ -3,15 +3,16 @@
 CSV 版でもスプレッドシート版でも、必ず同じメソッドを持つ、と決めます。
 こうしておくと app.py 側は「どこに保存しているか」を気にせず使えます。
 
-保存先は2種類あります。
+保存先は3種類あります。
   ・CarStorage …………………… 車の基本情報の保存先
   ・MaintenanceRecordStorage … 整備記録（履歴）の保存先
+  ・AnnualCostStorage ……… 年間費用（税金・保険料）の保存先
 """
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from src.models import Car, MaintenanceRecord
+from src.models import AnnualCost, Car, MaintenanceRecord
 
 
 class CarStorage(ABC):
@@ -56,3 +57,18 @@ class MaintenanceRecordStorage(ABC):
     @abstractmethod
     def delete_records_for_car(self, car_id: str) -> None:
         """指定した車の整備記録をすべて削除する（車を削除するときに使う）。"""
+
+
+class AnnualCostStorage(ABC):
+    """年間費用（税金・保険料）の保存先を表す共通の型。
+
+    削除は無し（間違えたら上書きで直す運用）。
+    """
+
+    @abstractmethod
+    def list_annual_costs(self, car_id: str | None = None) -> list[AnnualCost]:
+        """年間費用の記録を返す。car_id を指定すれば、その車の分だけ返す。"""
+
+    @abstractmethod
+    def upsert_annual_cost(self, record: AnnualCost) -> None:
+        """同じ車・同じ年の記録があれば上書き、無ければ新しい行として追加する。"""

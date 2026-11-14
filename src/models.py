@@ -194,6 +194,94 @@ def _str_to_optional_int(s: str | None) -> int | None:
 
 
 # =====================================================================
+# AnnualCost: 車1台・1年分の維持費（税金・保険料）
+#
+# 期限チェック（src/maintenance.py）とは完全に独立したデータです。
+# 1行 = 1台 × 1年。同じ車・同じ年の記録は上書き（行は増えない）。
+# =====================================================================
+
+ANNUAL_COST_FIELDNAMES = [
+    "car_id",                  # どの車の記録か（Car.id）
+    "year",                    # 支払った年（西暦、例: 2026）
+    "vehicle_tax",             # 自動車税（円）
+    "weight_tax",              # 重量税（円）
+    "compulsory_insurance",    # 自賠責保険料（円）
+    "voluntary_insurance",     # 任意保険料（円）
+    "memo",                    # メモ（任意）
+]
+
+
+@dataclass
+class AnnualCost:
+    """車1台・1年分の維持費（税金・保険料）。
+
+    4つの金額はどれも任意（未入力＝None）。0円は None と区別します。
+    """
+
+    car_id: str
+    year: int
+    vehicle_tax: int | None = None
+    weight_tax: int | None = None
+    compulsory_insurance: int | None = None
+    voluntary_insurance: int | None = None
+    memo: str = ""
+
+    def to_row(self) -> dict[str, str]:
+        """保存用に「すべて文字列の1行」に変換する。"""
+        return {
+            "car_id": self.car_id,
+            "year": str(self.year),
+            "vehicle_tax": "" if self.vehicle_tax is None else str(self.vehicle_tax),
+            "weight_tax": "" if self.weight_tax is None else str(self.weight_tax),
+            "compulsory_insurance": (
+                "" if self.compulsory_insurance is None else str(self.compulsory_insurance)
+            ),
+            "voluntary_insurance": (
+                "" if self.voluntary_insurance is None else str(self.voluntary_insurance)
+            ),
+            "memo": self.memo,
+        }
+
+    @classmethod
+    def from_row(cls, row: dict) -> "AnnualCost":
+        """保存されている1行（文字列の辞書）から AnnualCost を作り直す。"""
+        return cls(
+            car_id=(row.get("car_id") or "").strip(),
+            year=int(_str_to_optional_int(row.get("year")) or 0),
+            vehicle_tax=_str_to_optional_int(row.get("vehicle_tax")),
+            weight_tax=_str_to_optional_int(row.get("weight_tax")),
+            compulsory_insurance=_str_to_optional_int(row.get("compulsory_insurance")),
+            voluntary_insurance=_str_to_optional_int(row.get("voluntary_insurance")),
+            memo=(row.get("memo") or "").strip(),
+        )
+
+    @property
+    def amounts(self) -> tuple[int | None, int | None, int | None, int | None]:
+        """4つの金額をタプルで返す（表示・集計の使い回し用）。"""
+        return (
+            self.vehicle_tax,
+            self.weight_tax,
+            self.compulsory_insurance,
+            self.voluntary_insurance,
+        )
+
+    @property
+    def total(self) -> int:
+        """入力済みの金額だけを合計する（未入力は0として扱う＝無視する）。"""
+        return sum(v for v in self.amounts if v is not None)
+
+    @property
+    def has_any_amount(self) -> bool:
+        """4つの金額のうち、1つでも入力されているか。"""
+        return any(v is not None for v in self.amounts)
+
+    @property
+    def has_missing_amount(self) -> bool:
+        """4つの金額のうち、1つでも未入力のものがあるか。"""
+        return any(v is None for v in self.amounts)
+
+
+# =====================================================================
 # 日付の変換（Car / MaintenanceRecord 共通）
 # =====================================================================
 

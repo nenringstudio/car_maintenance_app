@@ -23,8 +23,15 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 
 from src import config
-from src.models import FIELDNAMES, RECORD_FIELDNAMES, Car, MaintenanceRecord
-from src.storage.base import CarStorage, MaintenanceRecordStorage
+from src.models import (
+    ANNUAL_COST_FIELDNAMES,
+    FIELDNAMES,
+    RECORD_FIELDNAMES,
+    AnnualCost,
+    Car,
+    MaintenanceRecord,
+)
+from src.storage.base import AnnualCostStorage, CarStorage, MaintenanceRecordStorage
 from src.storage.legacy import migrate_legacy_rows_to_records
 
 # gspread の例外（バージョン差を吸収）
@@ -310,3 +317,77 @@ class GoogleSheetsMaintenanceRecordStorage(MaintenanceRecordStorage):
         ]
         for row_number in sorted(rows_to_delete, reverse=True):
             self._worksheet().delete_rows(row_number)
+
+
+# =========================================================================
+# GoogleSheetsAnnualCostStorage: 年間費用（税金・保険料）
+# =========================================================================
+
+
+class GoogleSheetsAnnualCostStorage(AnnualCostStorage):
+    def __init__(
+        self,
+        spreadsheet_id: str | None = None,
+        worksheet_name: str | None = None,
+    ) -> None:
+        self.spreadsheet_id = spreadsheet_id or config.SPREADSHEET_ID
+        self.worksheet_name = worksheet_name or config.ANNUAL_COSTS_WORKSHEET_NAME
+        if not self.spreadsheet_id:
+            raise RuntimeError(
+                "スプレッドシートの ID が設定されていません。\n"
+                ".streamlit/secrets.toml に spreadsheet_id または spreadsheet_url を書いてください。"
+            )
+        self._ws = None
+
+    def _worksheet(self):
+        if self._ws is not None:
+            return self._ws
+
+        client = gspread.authorize(_credentials())
+        spreadsheet = _open_spreadsheet(client, self.spreadsheet_id)
+        ws = _get_or_create_worksheet(
+            spreadsheet, self.worksheet_name, len(ANNUAL_COST_FIELDNAMES)
+        )
+
+        first_row = ws.row_values(1)
+        if first_row != ANNUAL_COST_FIELDNAMES:
+            ws.update(
+                [ANNUAL_COST_FIELDNAMES], range_name="A1", value_input_option="RAW"
+            )
+
+        self._ws = ws
+        return ws
+
+    def _rows(self) -> list[dict]:
+        return self._worksheet().get_all_records(numericise_ignore=["all"])
+
+    # ---------------------------------------------------------------
+    # ここからが共通ルール（AnnualCostStorage）で決めたメソッド
+    # ---------------------------------------------------------------
+
+    def list_annual_costs(self, car_id: str | None = None) -> list[AnnualCost]:
+        records = [AnnualCost.from_row(row) for row in self._rows()]
+        if car_id is not None:
+            records = [r for r in records if r.car_id == car_id]
+        return records
+
+    def upsert_annual_cost(self, record: AnnualCost) -> None:
+        ws = self._worksheet()
+        raw_rows = ws.get_all_records(numericise_ignore=["all"])
+        row = record.to_row()
+        values = [row[name] for name in ANNUAL_COST_FIELDNAMES]
+
+        for i, existing_row in enumerate(raw_rows):
+            same_car = (existing_row.get("car_id") or "").strip() == record.car_id
+            same_year = str(existing_row.get("year") or "").strip() == str(record.year)
+            if same_car and same_year:
+                row_number = i + 2  # 1行目は見出しなので、データは2行目から
+                last_col = _last_column_letter(ANNUAL_COST_FIELDNAMES)
+                ws.update(
+                    [values],
+                    range_name=f"A{row_number}:{last_col}{row_number}",
+                    value_input_option="RAW",
+                )
+                return
+
+        ws.append_row(values, value_input_option="RAW")
